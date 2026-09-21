@@ -588,6 +588,15 @@ captured pieces, undo, new game, theme picker, camera buttons, camera instructio
 > for a full tick. The turn loop now refreshes it the instant it starts
 > waiting, and the poll only covers what happens after that.
 >
+> **Log (13.2) — "not contacted yet" was true and useless.** Starting a game
+> against an endpoint showed *Endpoint — not contacted yet*, which was accurate
+> — the gateway does not call the model until it is the model's turn, so a
+> player with White saw that until their first move — and told the player
+> nothing about whether the address they had just typed was right. It now
+> checks once at kick-off and names the model that answered, or says the
+> endpoint is not answering and shows why. Reported by the user, who had pasted
+> a working LM Studio URL and reasonably expected the game to try it.
+>
 > **Log (13.2) — only the relay is polled.** An endpoint's status could be
 > checked the same way, but calling someone's model every few seconds to ask
 > whether it is awake is rude and costs them. Its state is whatever the last

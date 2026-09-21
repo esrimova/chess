@@ -63,9 +63,11 @@ under way, so a stray press does not throw one away.
 
 While an AI is playing, an indicator next to the turn shows whether it is
 actually there: connected, on the move, or not connected at all. For AI Connect
-that is the live state of the connection; for AI Endpoint it is what the last
-move attempt did, because polling someone's model every few seconds to ask if
-it is awake would be rude.
+that is the live state of the connection. For AI Endpoint the address is checked
+once when the game starts — it names the model if it answers and says so plainly
+if it does not — and after that the indicator reflects whatever the last move
+attempt did, because polling someone's model every few seconds to ask if it is
+awake costs them and says little.
 
 ---
 

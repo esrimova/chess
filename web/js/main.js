@@ -336,7 +336,32 @@ class App {
       return;
     }
     if (settings.opponent === 'http') {
-      this.hud.setAiStatus('idle', 'Endpoint — not contacted yet');
+      // Check it once, now, rather than leaving the player to discover at
+      // their first move that nothing was ever there. After that the status
+      // is whatever the last move did: polling somebody's model every few
+      // seconds to ask whether it is awake costs them and tells us little.
+      this.hud.setAiStatus('busy', 'Checking the endpoint…');
+      probeOpponents({ http: settings.http }).then((health) => {
+        if (!this.playing || this.settings !== settings) return;
+        if (!health) {
+          this.hud.setAiStatus('down', 'Gateway unreachable');
+        } else if (health.http && health.http.ok) {
+          const model = health.http.model || 'endpoint';
+          this.hud.setAiStatus('live', `${model} ready`);
+        } else {
+          this.hud.setAiStatus('down', 'Endpoint not answering');
+          this.hud.toast(
+            'The AI endpoint did not answer.',
+            {
+              detail: (health.http && health.http.error)
+                ? `${health.http.url}: ${health.http.error}`
+                : 'Check the address on the setup screen.',
+              bad: true,
+              ms: 12000,
+            }
+          );
+        }
+      });
       return;
     }
     this.hud.setAiStatus(null);
