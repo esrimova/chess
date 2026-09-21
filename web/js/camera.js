@@ -16,6 +16,9 @@ const MIN_POLAR = 0.12;
 const MAX_POLAR = Math.PI / 2 - 0.06;
 const MIN_RADIUS = 5.5;
 const MAX_RADIUS = 46;
+// How far the board may be pushed off centre. Far enough to look along a rank
+// from the edge, close enough that it can never be lost off screen.
+const MAX_PAN = 9;
 
 const easeInOut = (t) => (t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2);
 
@@ -23,7 +26,14 @@ export class CameraRig {
   constructor(camera, domElement) {
     this.camera = camera;
     this.dom = domElement;
+    // Where the camera is looking, and where it is being asked to look. The
+    // gap between them is closed each frame, so a pan glides like the orbit.
     this.target = new THREE.Vector3(0, 0, 0);
+    this.targetGoal = new THREE.Vector3(0, 0, 0);
+
+    // Which of the two a drag in progress is doing, decided by the modifier
+    // that started it.
+    this._dragKind = 'orbit';
 
     // Where the camera is going, and where it currently is. The gap between
     // them, closed a little each frame, is the damping.
@@ -60,11 +70,35 @@ export class CameraRig {
     });
   }
 
-  /** True when this event is the camera's to handle, not the board's. */
+  /**
+   * True when this event is the camera's to handle, not the board's.
+   *
+   * A bare click is always the board's — that rule is what keeps selecting a
+   * piece and moving the camera from fighting over the same gesture.
+   */
   claims(event) {
     if (!this.enabled) return false;
     if (event.pointerType === 'touch') return this._pointers.size >= 2;
-    return event.ctrlKey || event.metaKey || event.button === 2 || event.button === 1;
+    return (
+      event.ctrlKey || event.metaKey || event.shiftKey
+      || event.button === 2 || event.button === 1
+    );
+  }
+
+  /**
+   * What a drag will do, from the key that started it.
+   *
+   * Ctrl turns the board, shift slides it. Reading the modifier at the moment
+   * the drag begins, rather than every frame, means letting go of the key
+   * mid-drag finishes what you started instead of switching under your hand.
+   */
+  _kindFor(event) {
+    if (event.pointerType === 'touch') {
+      return this._pointers.size >= 3 ? 'pan' : 'orbit';
+    }
+    if (event.shiftKey) return 'pan';
+    if (event.button === 1) return 'pan';   // middle drag, as elsewhere
+    return 'orbit';
   }
 
   _onDown = (event) => {
@@ -72,12 +106,14 @@ export class CameraRig {
     this._pointers.set(event.pointerId, { x: event.clientX, y: event.clientY });
 
     if (event.pointerType === 'touch') {
-      if (this._pointers.size === 2) {
+      if (this._pointers.size >= 2) {
         this._orbiting = true;
         this._tween = null;
-        const [a, b] = [...this._pointers.values()];
+        this._dragKind = this._kindFor(event);
+        const points = [...this._pointers.values()];
+        const [a, b] = points;
         this._pinchDistance = Math.hypot(a.x - b.x, a.y - b.y);
-        this._last = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+        this._last = this._centroid(points);
       }
       return;
     }
@@ -85,6 +121,7 @@ export class CameraRig {
     if (this.claims(event)) {
       this._orbiting = true;
       this._tween = null;
+      this._dragKind = this._kindFor(event);
       this._last = { x: event.clientX, y: event.clientY };
       event.preventDefault();
     }
@@ -97,9 +134,13 @@ export class CameraRig {
     if (!this._orbiting) return;
 
     if (event.pointerType === 'touch' && this._pointers.size >= 2) {
-      const [a, b] = [...this._pointers.values()];
+      const points = [...this._pointers.values()];
+      const [a, b] = points;
       const distance = Math.hypot(a.x - b.x, a.y - b.y);
-      const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+      const mid = this._centroid(points);
+
+      // A third finger arriving turns the gesture into a slide.
+      this._dragKind = this._pointers.size >= 3 ? 'pan' : this._dragKind;
 
       if (this._pinchDistance > 0) {
         const ratio = this._pinchDistance / Math.max(distance, 1);
@@ -107,13 +148,13 @@ export class CameraRig {
       }
       this._pinchDistance = distance;
 
-      this._rotateBy(mid.x - this._last.x, mid.y - this._last.y);
+      this._dragBy(mid.x - this._last.x, mid.y - this._last.y);
       this._last = mid;
       event.preventDefault();
       return;
     }
 
-    this._rotateBy(event.clientX - this._last.x, event.clientY - this._last.y);
+    this._dragBy(event.clientX - this._last.x, event.clientY - this._last.y);
     this._last = { x: event.clientX, y: event.clientY };
     event.preventDefault();
   };
@@ -132,6 +173,43 @@ export class CameraRig {
     const factor = Math.exp(event.deltaY * 0.0012);
     this.radius = THREE.MathUtils.clamp(this.radius * factor, MIN_RADIUS, MAX_RADIUS);
   };
+
+  _centroid(points) {
+    const sum = points.reduce((a, p) => ({ x: a.x + p.x, y: a.y + p.y }), { x: 0, y: 0 });
+    return { x: sum.x / points.length, y: sum.y / points.length };
+  }
+
+  /** A drag does whichever the modifier that started it asked for. */
+  _dragBy(dx, dy) {
+    if (this._dragKind === 'pan') this._panBy(dx, dy);
+    else this._rotateBy(dx, dy);
+  }
+
+  /**
+   * Slide the board across the view.
+   *
+   * Moves along the camera's own right and up axes, so the board follows the
+   * cursor whichever way the board happens to be turned, and scales with the
+   * distance so the drag tracks at any zoom. Clamped, because a camera that
+   * can be pushed until the board is off screen is a camera that will be.
+   */
+  _panBy(dx, dy) {
+    this.userAdjusted = true;
+    this.camera.updateMatrixWorld();
+    const m = this.camera.matrixWorld.elements;
+    const right = new THREE.Vector3(m[0], m[1], m[2]);
+    const up = new THREE.Vector3(m[4], m[5], m[6]);
+
+    const scale = this.current.radius * 0.0016;
+    this.targetGoal
+      .addScaledVector(right, -dx * scale)
+      .addScaledVector(up, dy * scale);
+
+    this.targetGoal.y = 0;
+    if (this.targetGoal.length() > MAX_PAN) {
+      this.targetGoal.setLength(MAX_PAN);
+    }
+  }
 
   _rotateBy(dx, dy) {
     this.userAdjusted = true;
@@ -161,8 +239,14 @@ export class CameraRig {
     this._goto({ theta: this.theta + Math.PI * 2 }, duration);
   }
 
+  /** True when the board has been pushed off centre. */
+  get panned() {
+    return this.targetGoal.lengthSq() > 1e-6;
+  }
+
   reset(duration = 0.8) {
     this.userAdjusted = false;
+    this.targetGoal.set(0, 0, 0);
     const turns = Math.round(this.theta / (Math.PI * 2));
     this._goto(
       { theta: turns * Math.PI * 2, phi: this.homePhi, radius: this.homeRadius },
@@ -204,6 +288,9 @@ export class CameraRig {
    */
   frame(points, { marginX = 0.86, marginY = 0.86, aspect = null } = {}) {
     if (!points || points.length === 0) return;
+    // Framing assumes the board is centred, so bring it back first.
+    this.targetGoal.set(0, 0, 0);
+    this.target.set(0, 0, 0);
     if (aspect !== null && !this.userAdjusted) {
       this.phi = this.angleForAspect(aspect);
       this.current.phi = this.phi;
@@ -276,6 +363,7 @@ export class CameraRig {
     this.current.theta += (this.theta - this.current.theta) * k;
     this.current.phi += (this.phi - this.current.phi) * k;
     this.current.radius += (this.radius - this.current.radius) * k;
+    this.target.lerp(this.targetGoal, k);
     this._apply();
   }
 

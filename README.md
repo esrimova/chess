@@ -50,8 +50,12 @@ The server is standard library only; Three.js and chess.js are vendored in
 |---|---|
 | **Move a piece** | Click it, then click the square. Legal squares light up: a dot is an empty square, an outline is something to take. |
 | **Turn the board** | Ctrl-drag. A full 360°, in either direction, with no stop. |
+| **Slide the board** | Press **Turn** in the controls so it reads **Move**, then ctrl-drag. |
 | **Zoom** | Scroll wheel. |
-| **On a phone** | One finger for pieces, two fingers to turn, pinch to zoom. |
+| **On a phone** | One finger for pieces, two fingers for whichever of turn or slide is selected, pinch to zoom. |
+
+A plain click always belongs to the pieces, in either mode. Reset view
+re-centres the board and returns it to the default framing.
 
 The buttons on the right start a new game, flip to the other side, spin the
 board, reset the view, and take a move back. New game asks twice once a game is

@@ -366,12 +366,12 @@ export class Hud {
     this.el.toast.hidden = true;
   }
 
-  /** The control hint, shown once at the start of the first game. */
+  /** The control hint: what the gestures do. */
   showHint(touch) {
     const bar = this.el.hintBar;
     bar.textContent = touch
-      ? 'Tap a piece, then its square · two fingers to turn, pinch to zoom'
-      : 'Ctrl-drag to turn the board · scroll to zoom';
+      ? 'Tap a piece, then its square · two fingers turn, three slide, pinch zooms'
+      : 'Ctrl-drag turns the board · Shift-drag slides it · scroll to zoom';
     bar.hidden = false;
     bar.classList.remove('fade');
     setTimeout(() => bar.classList.add('fade'), 5200);

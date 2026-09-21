@@ -239,14 +239,51 @@ selection, refuse input while animating.
 
 ## 6. Camera
 
-**6.1 Orbit, zoom, pan** — ctrl-drag orbits a full 360°, scroll zooms, polar clamped,
-damped, **plain click reserved for pieces**.
+**6.1 Orbit, zoom, pan** — ctrl-drag orbits a full 360° or slides the board,
+whichever the mode button says; scroll zooms; polar clamped; damped;
+**plain click reserved for pieces** in both modes.
 - [x] Implementation
 - [x] Backend testing — framing solved and asserted at seven window shapes.
-- [x] Frontend testing — ctrl-drag turns the board and selects nothing; plain drag
-  moves the camera by exactly zero; azimuth ran past 4½ turns without clamping;
-  polar clamped to 0.12–1.51 so the camera never goes under the board; wheel zoom
-  clamps at 5.5 and 46.
+- [x] Frontend testing — ctrl-drag turns the board and slides it by exactly zero;
+  shift-drag slides it and turns it by exactly zero; plain drag does neither and
+  selects nothing; releasing shift mid-drag keeps sliding rather than switching
+  under your hand; two fingers turn and three slide; the slide clamps at 9 units
+  on the ground plane and Reset view re-centres it; azimuth ran past 4½ turns
+  without clamping; polar clamped to 0.12–1.51 so the camera never goes under the
+  board; wheel zoom clamps at 5.5 and 46.
+
+> **Log (6.1) — there was no way to move the camera off centre.** Ctrl-drag only
+> orbited, so the board could be turned and zoomed but never slid, and a player
+> who wanted to look along a rank from the edge could not. Sliding moves along
+> the camera's own axes and scales with distance, so the board tracks the cursor
+> however it is turned and at any zoom. It is clamped to 9 units and pinned to
+> the ground plane: a camera that can be pushed until the board is off screen is
+> one that will be. Framing re-centres before it measures, so the automatic fit
+> is not thrown off by a slide left in place.
+>
+> **Log (6.1) — a mode button was the wrong answer.** The first version put a
+> Turn/Move toggle next to the other controls. It worked, but it made a
+> persistent mode out of something that wants to be momentary: you had to look
+> at a button to know what your next drag would do, and set it back afterwards.
+> Replaced with a second modifier — ctrl turns, shift slides — which needs no
+> button, no memory and no state to get out of step. The modifier is read once,
+> when the drag starts, so letting go of the key half way finishes the gesture
+> you began instead of changing it under your hand. In Move mode a ctrl-drag slid the board without turning
+  it by any amount, two fingers did the same, a plain drag still did nothing,
+  the slide clamped at 9 units and stayed on the ground plane, and Reset view
+  brought it back to centre.
+
+> **Log (6.1) — there was no way to move the camera off centre.** Ctrl-drag only
+> orbited, so the board could be turned and zoomed but never slid, and a player
+> who wanted to look along a rank from the edge could not. Added a mode button
+> next to the others, reading **Turn** or **Move**, which decides what a drag
+> does — the same choice for ctrl-drag and for two fingers, so the two never
+> disagree. Sliding moves along the camera's own axes and scales with distance,
+> so the board tracks the cursor however it is turned and at any zoom. It is
+> clamped to 9 units and pinned to the ground plane: a camera that can be pushed
+> until the board is off screen is one that will be, and there would be no way
+> back except Reset. Framing re-centres before it measures, so the automatic
+> fit is not thrown off by a slide left in place.
 
 **6.2 Touch equivalents** — one finger pieces, two fingers orbit, pinch zoom.
 - [x] Implementation
