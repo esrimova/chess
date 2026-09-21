@@ -255,12 +255,6 @@ class App {
     const human = new HumanEngine();
     this.human = human;
 
-    if (settings.opponent === 'human') {
-      const second = new HumanEngine('Second player');
-      this.secondHuman = second;
-      return settings.side === 'b' ? { b: human, w: second } : { w: human, b: second };
-    }
-
     // 'builtin' is the name memory shipped under first; a saved setting from
     // then still selects it.
     const kinds = { memory: 'memory', builtin: 'memory', http: 'http', cli: 'cli' };
@@ -335,7 +329,7 @@ class App {
     this.hud.setOpening(null);
 
     this.engines = this.buildEngines(settings);
-    this.humanColor = settings.opponent === 'human' ? null : settings.side;
+    this.humanColor = settings.side;
 
     this.rig.setSide(settings.side === 'b' ? 'b' : 'w', true);
     this.hud.showSetup(false);

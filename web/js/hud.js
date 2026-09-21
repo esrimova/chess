@@ -136,8 +136,7 @@ export class Hud {
     const kind = this.el.opponent.value;
     this.el.httpConfig.hidden = kind !== 'http';
     this.el.cliConfig.hidden = kind !== 'cli';
-    this.el.testConnection.hidden = kind === 'human';
-    this.el.difficulty.closest('.field').hidden = kind === 'human';
+    this.el.testConnection.hidden = false;
 
     const hints = {
       memory: 'Not an AI. It plays a memorised opening book, then falls back to taking '
@@ -145,7 +144,6 @@ export class Hud {
       http: 'An AI reached over HTTP. Your own machine or anywhere you can reach it.',
       cli: 'An AI you run from a terminal. A fresh process each move, so it sees the '
         + 'position and nothing else.',
-      human: 'Both sides played on this board. Use the flip button to turn it around.',
     };
     this.el.opponentHint.textContent = hints[kind] || '';
     this.setSetupStatus('');
@@ -178,7 +176,12 @@ export class Hud {
 
   writeSettings(settings) {
     if (!settings) return;
-    if (settings.opponent) this.el.opponent.value = settings.opponent;
+    if (settings.opponent) {
+      // A setting saved under an opponent that no longer exists would leave the
+      // dropdown on no value at all, so fall back to the first one.
+      this.el.opponent.value = settings.opponent;
+      if (!this.el.opponent.value) this.el.opponent.selectedIndex = 0;
+    }
     if (settings.difficulty) this.el.difficulty.value = settings.difficulty;
     if (settings.side) this.el.side.value = settings.side;
     if (settings.http) {

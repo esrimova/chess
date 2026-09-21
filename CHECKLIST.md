@@ -355,6 +355,15 @@ involved.
 > still standard library only. Out of book the old heuristic remains, and the
 > interface says which of the two is playing.
 >
+> **Log (10.1) — an option nobody asked for.** A "Two players, one board" mode
+> was built alongside the opponents and kept through a restructure that did not
+> list it, on the reasoning that removing working code was the greater harm.
+> That reasoning was wrong: the scope is the user's to set, and carrying an
+> unrequested feature forward is not a favour. Removed entirely — the option,
+> the second human engine, the hint, and the README section. A setting saved
+> while it existed now falls back to the first opponent instead of leaving the
+> dropdown on no value.
+>
 > **Log (10.1) — naming a line too early is a lie.** The book first stored one
 > name per position, so the opening move reported "Alekhine Defence" — every
 > line in the book shares the starting position, and sorting alphabetically

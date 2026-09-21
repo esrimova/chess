@@ -86,10 +86,6 @@ Commands are resolved through `PATH` including `PATHEXT`, so npm- and
 script-installed tools work on Windows, where a bare name would otherwise
 fail to launch.
 
-### Two players
-
-Both sides on one board.
-
 ### Adding another kind of opponent
 
 Every opponent implements one method:
