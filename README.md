@@ -5,14 +5,24 @@ at, and needs nothing installed to get started.
 
 Clone it, run it, pick a theme, plug in an endpoint. That is the whole setup.
 
+**On Windows, double-click `Play AI Chess3D.bat`.** That is the whole thing —
+the board opens in your browser.
+
+Do not double-click `server.py`. Windows has no file association for `.py`
+unless Python was installed with one, so it does nothing at all: no error, no
+window, nothing. The launcher exists for exactly that. It also finds Python
+when it is installed but not on `PATH`, and checks that the interpreter it
+found actually runs before using it — the `py` launcher will point at a Python
+that has been moved or deleted and report it as present until you try to start
+it.
+
+From a terminal, on any platform:
+
 ```bash
 git clone https://github.com/esrimova/chess
 cd chess
 python server.py
 ```
-
-That is all of it — the board opens in your browser. On Windows you can
-double-click **`start.bat`** instead.
 
 It also prints a second address on your local network. Open that on a phone
 and you get the same board, same controls, same app.

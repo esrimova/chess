@@ -1,0 +1,9 @@
+# Keep line endings sane wherever this is cloned.
+* text=auto
+
+# A batch file with LF endings misbehaves on Windows around labels and goto,
+# and the launcher is the one file a Windows user runs first.
+*.bat text eol=crlf
+
+# Vendored libraries are checked in verbatim; leave them alone.
+web/js/vendor/** -text -diff

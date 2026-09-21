@@ -48,11 +48,33 @@ is not done, however well it appears to work.
 
 ## 0. Project setup
 
-**0.1 Repo skeleton** — structure, `.gitignore`, MIT licence, throwaway terminal-chess
-files removed.
+**0.1 Repo skeleton** — structure, `.gitignore`, MIT licence, a Windows launcher,
+throwaway terminal-chess files removed.
 - [x] Implementation
 - [x] Backend testing — `tests/test_gateway.py` serves and fetches every shipped file.
-- [—] Frontend testing — a folder layout has no user-facing surface.
+- [x] Frontend testing — `Play AI Chess3D.bat` run the way a double-click runs it:
+  it found a working interpreter, started the gateway, and served the page.
+
+> **Log (0.1) — nothing would start it.** `python server.py` is not something
+> Windows can act on: `.py` has no file association unless Python was installed
+> with one, so double-clicking the file does nothing at all — no error, no
+> window. Added `Play AI Chess3D.bat`, named so it is obvious what to press.
+>
+> **Log (0.1) — the standard way to find Python was broken on this machine.**
+> The first launcher preferred the `py` launcher, which is the usual advice.
+> Here `py -3` resolved to `C:\Proyectos\GameD\.tools\python-3.13.13\python.exe`
+> — an interpreter registered by a project that has since moved to another
+> drive. `where py` succeeds, `py -3` reports a version, and starting it fails
+> with *the system cannot find the file specified*. The launcher now **runs**
+> each candidate before accepting it rather than checking that the command
+> exists, and falls through to `python`, `python3`, and the usual per-user and
+> machine install paths.
+>
+> **Not an .exe, deliberately.** Freezing this with PyInstaller would add a
+> build step and a ten-megabyte binary to a repository whose whole premise is
+> that there is nothing to install. A `.bat` is what Windows already knows how
+> to run. (An `.html` file cannot do it at all — a page has no way to start a
+> server; it is the thing the server serves.)
 
 **0.2 Vendored libraries** — Three.js 0.169.0, chess.js 1.0.0-beta.8, pinned, no build
 step, no npm at runtime.
