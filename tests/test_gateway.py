@@ -156,7 +156,7 @@ def main():
     port = free_port()
     proc = subprocess.Popen(
         [sys.executable, os.path.join(ROOT, "server.py"), "--port", str(port),
-         "--host", "127.0.0.1"],
+         "--host", "127.0.0.1", "--no-browser"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         env={**os.environ, "CHESS3D_QUIET": "1"},
     )

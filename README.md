@@ -11,8 +11,22 @@ cd chess
 python server.py
 ```
 
-Then open **http://127.0.0.1:8770**. The server prints your LAN address too —
-open that on a phone and you get the same board, same controls, same app.
+That is all of it — the board opens in your browser. On Windows you can
+double-click **`start.bat`** instead.
+
+It also prints a second address on your local network. Open that on a phone
+and you get the same board, same controls, same app.
+
+```
+Chess3D
+  http://127.0.0.1:8770
+  http://192.168.1.20:8770
+  (the second one works from a phone on the same network)
+  ctrl-c to stop
+```
+
+`python server.py --no-browser` leaves the browser alone;
+`--port 9000` moves it; `--host 127.0.0.1` keeps it off the network.
 
 There is no build step, no `npm install`, and no Python packages to install.
 The server is standard library only; Three.js and chess.js are vendored in

@@ -28,6 +28,8 @@ import re
 import socket
 import subprocess
 import sys
+import threading
+import webbrowser
 import urllib.error
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -542,6 +544,8 @@ def main():
     parser.add_argument("--port", type=int, default=int(os.getenv("CHESS3D_PORT", "8770")))
     parser.add_argument("--host", default=os.getenv("CHESS3D_HOST", "0.0.0.0"),
                         help="0.0.0.0 to allow other devices on your network (default)")
+    parser.add_argument("--no-browser", action="store_true",
+                        help="do not open a browser window")
     args = parser.parse_args()
 
     if not os.path.isdir(WEB_ROOT):
@@ -549,10 +553,25 @@ def main():
         return 1
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    addresses = local_addresses(args.port)
+
     print("Chess3D")
-    for url in local_addresses(args.port):
+    for url in addresses:
         print(f"  {url}")
+    if len(addresses) > 1:
+        print("  (the second one works from a phone on the same network)")
     print("  ctrl-c to stop")
+    # Request logging goes to stderr, which is unbuffered. Without this flush
+    # the addresses sit in a buffer behind it whenever output is redirected or
+    # read by a wrapper, and the one thing anyone needs appears last.
+    sys.stdout.flush()
+
+    if not args.no_browser:
+        # The socket is already bound and listening, so the page is there to be
+        # fetched; serve_forever below answers it. Opening from a short timer
+        # keeps this off the main thread, which is about to block.
+        threading.Timer(0.4, lambda: webbrowser.open(addresses[0])).start()
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
