@@ -2,7 +2,8 @@
 
 **Repo:** https://github.com/esrimova/chess
 **Working dir:** `C:\Proyectos\Chess`
-**Status:** implementation complete, backend pass complete, frontend pass complete.
+**Status:** complete. Implementation, backend pass and frontend pass all done;
+every defect found in testing is fixed.
 
 ---
 
@@ -476,10 +477,13 @@ new game, theme picker, camera buttons.
 **14.1 Phone layout** — board fills the screen, no horizontal scroll, safe areas respected.
 - [x] Implementation
 - [x] Backend testing — framing solved at 360×640, 390×780, 768×1024, 1024×768,
-  1440×900, 1920×800 and 780×390: all fit, all use 84–86% of the frame, including
-  the worst case of the board turned 45° on a phone.
-- [x] Frontend testing — rendered at phone size: all 64 squares visible, labels legible,
-  highlights readable, no horizontal overflow.
+  1440×900, 1920×800 and 780×390: all fit inside the free band, portrait using
+  87–90% of the width and landscape 84–86% of the band, including the worst case
+  of the board turned 45° on a phone.
+- [x] Frontend testing — **at a true 389 px viewport**, with the narrow CSS rules
+  actually active: setup sheet 357 px with even gutters, top bar full width, move
+  panel spanning the width above a row of controls within thumb reach, nothing
+  overlapping, no horizontal scroll, all 64 squares visible and labels legible.
 
 **14.2 Performance on a phone** — triangle budget, capped DPR, workable shadows.
 - [x] Implementation
@@ -487,12 +491,36 @@ new game, theme picker, camera buttons.
   triangles for 32 pieces; DPR capped at 2.
 - [x] Frontend testing — rendered without stutter at every size tested.
 
-> **Log (14.1):** the browser automation window could not be resized — the tab
-> reported a 1536-wide viewport whatever the window did — so phone layout was
-> tested by constraining the stage element to phone dimensions and measuring the
-> projected board corners directly. That tests the camera framing, which is the
-> substantive risk, but the CSS breakpoint rules below 760px have **not** been
-> seen rendering at a true narrow viewport. Worth a look on a real phone.
+> **Log (14.1) — testing a narrow viewport at all.** The automation window
+> would not resize: the tab reported 1536 px wide whatever the window did, so
+> the first pass constrained the stage element instead and measured projected
+> corners. That covers the camera but leaves the CSS breakpoints unproven,
+> because media queries key off the viewport, not an element. Resolved by
+> loading the app in a **390 px iframe**, which has a viewport of its own:
+> `matchMedia('(max-width: 760px)')` reports true inside it and the narrow rules
+> genuinely apply. A real narrow-viewport test, not a simulation.
+>
+> **Log (14.1) — the board was framed behind the furniture.** Seen properly at
+> 389 px, the board sat in a band in the middle with dead space above it and the
+> move panel taking the bottom third. The cause: the canvas fills the window but
+> the chrome sits on top of it, so centring in the canvas centres the board
+> behind the top bar, the panel and the controls. Now `freeBand()` measures the
+> vertical strip nothing is covering, `Stage.setViewShift()` offsets the
+> projection in screen space to centre the board there, and the vertical framing
+> margin is scaled to that band. The shift is screen-space, so it holds however
+> the board is turned. Only chrome spanning more than 70% of the width counts,
+> so the desktop layout — where the panel and controls sit in the corners with
+> the board between them — is unaffected.
+>
+> **Log (14.1) — measuring through the shift.** First version applied the view
+> shift and *then* solved the distance, which counted the deliberate offset as
+> overflow and pulled the camera 30% too far back. The shift is a pure
+> translation, so the fit is now solved against an unshifted camera and the
+> shift applied afterwards.
+>
+> **Log (14.1) — the move list costs a third of a phone.** It now starts
+> collapsed below 760 px, header and all, so it is one tap away rather than
+> occupying the space the board needs. Toggling it reframes the board.
 
 ---
 
@@ -545,9 +573,7 @@ Qwen3-VL-4B in LM Studio.
 
 ## Known gaps
 
-1. **CSS breakpoints below 760px have not been seen at a true narrow viewport** —
-   see the log under 14.1. The 3D framing is verified; the DOM chrome is not.
-2. **Difficulty is advisory for language models.** It is precise for the built-in
+1. **Difficulty is advisory for language models.** It is precise for the built-in
    opponent and a line in the prompt for everything else. Said plainly in the UI.
 3. **The built-in opponent is not an engine.** It chooses from the legal moves the
    board hands it and has no search. It is described as a sparring partner.

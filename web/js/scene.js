@@ -134,6 +134,28 @@ export class Stage {
     this.scene.fog.far = this._fogSpec.far + shift;
   }
 
+  /**
+   * Shift what the camera renders up or down the canvas, in pixels.
+   *
+   * The canvas fills the window, but the chrome does not: a top bar covers the
+   * first sixty pixels and, on a narrow screen, the move panel and controls
+   * cover the last three hundred. Centring the board in the canvas therefore
+   * centres it behind the furniture. This offsets the projection in screen
+   * space, so the board sits in the space actually left for it — and because
+   * the shift is in screen space, it holds however the board is turned.
+   */
+  setViewShift(pixelsUp) {
+    const w = this.canvas.clientWidth || 1;
+    const h = this.canvas.clientHeight || 1;
+    this._viewShift = pixelsUp;
+    if (!pixelsUp) {
+      this.camera.clearViewOffset();
+    } else {
+      this.camera.setViewOffset(w, h, 0, pixelsUp, w, h);
+    }
+    this.camera.updateProjectionMatrix();
+  }
+
   _observeSize() {
     const resize = () => {
       const parent = this.canvas.parentElement || document.body;
@@ -143,6 +165,7 @@ export class Stage {
       this.renderer.setSize(w, h, false);
       this.camera.aspect = w / h;
       this.camera.updateProjectionMatrix();
+      if (this._viewShift) this.setViewShift(this._viewShift);
     };
     this._resize = resize;
     if (typeof ResizeObserver !== 'undefined') {

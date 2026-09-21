@@ -67,9 +67,19 @@ export class Hud {
 
     this._promotionResolve = null;
     this._toastTimer = null;
-    this._panelOpen = true;
+    // On a phone the open move list costs a third of the screen, which the
+    // board needs more than the list does. The header stays, so it is one tap
+    // away rather than hidden.
+    this._panelOpen = !matchMedia('(max-width: 760px)').matches;
 
     this._wireStatic();
+    this._applyPanelState();
+  }
+
+  _applyPanelState() {
+    this.el.moves.hidden = !this._panelOpen;
+    this.el.captured.hidden = !this._panelOpen;
+    this.el.panelToggle.textContent = this._panelOpen ? 'Hide' : 'Show';
   }
 
   _wireStatic() {
@@ -77,9 +87,7 @@ export class Hud {
 
     this.el.panelToggle.addEventListener('click', () => {
       this._panelOpen = !this._panelOpen;
-      this.el.moves.hidden = !this._panelOpen;
-      this.el.captured.hidden = !this._panelOpen;
-      this.el.panelToggle.textContent = this._panelOpen ? 'Hide' : 'Show';
+      this._applyPanelState();
     });
 
     this.el.promotion.querySelectorAll('[data-piece]').forEach((button) => {

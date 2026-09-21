@@ -202,7 +202,7 @@ export class CameraRig {
    * Projected size is very nearly inversely proportional to distance, so
    * scaling by the current overshoot converges in two or three passes.
    */
-  frame(points, margin = 0.86, aspect = null) {
+  frame(points, { marginX = 0.86, marginY = 0.86, aspect = null } = {}) {
     if (!points || points.length === 0) return;
     if (aspect !== null && !this.userAdjusted) {
       this.phi = this.angleForAspect(aspect);
@@ -211,13 +211,17 @@ export class CameraRig {
     }
     for (let pass = 0; pass < 8; pass++) {
       this._apply(true);
-      let extent = 0;
+      let extentX = 0;
+      let extentY = 0;
       for (const point of points) {
         const v = point.clone().project(this.camera);
-        extent = Math.max(extent, Math.abs(v.x), Math.abs(v.y));
+        extentX = Math.max(extentX, Math.abs(v.x));
+        extentY = Math.max(extentY, Math.abs(v.y));
       }
-      if (extent <= 1e-6) return;
-      const over = extent / margin;
+      if (extentX <= 1e-6 && extentY <= 1e-6) return;
+      // Horizontal and vertical room differ once the chrome is accounted for,
+      // so each axis is measured against its own margin.
+      const over = Math.max(extentX / marginX, extentY / marginY);
       if (Math.abs(over - 1) < 0.01) break;
       this.radius = THREE.MathUtils.clamp(this.radius * over, MIN_RADIUS, MAX_RADIUS);
     }

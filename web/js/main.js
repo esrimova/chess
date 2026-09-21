@@ -121,11 +121,59 @@ class App {
     window.chess3d = this;
   }
 
-  /** Choose a viewing angle for this window, then pull back until it all fits. */
+  /**
+   * Frame the board in the space the interface actually leaves for it.
+   *
+   * The canvas fills the window but the chrome sits on top of it: a bar across
+   * the top, and on a narrow screen a move panel and a row of controls across
+   * the bottom. Framing against the whole canvas centres the board behind that
+   * furniture, which on a phone left an empty band above the board and pushed
+   * the board down against the panel. Measure what is free, centre there, and
+   * fit to that height rather than the full one.
+   */
   frameBoard() {
     const canvas = this.stage.canvas;
-    const aspect = (canvas.clientWidth || 1) / (canvas.clientHeight || 1);
-    this.rig.frame(this.board.framingPoints(PIECE_HEIGHTS.k + 0.3), 0.86, aspect);
+    const width = canvas.clientWidth || 1;
+    const height = canvas.clientHeight || 1;
+    const aspect = width / height;
+
+    const free = this.freeBand(height);
+    const centre = (free.top + free.bottom) / 2;
+    const bandHeight = Math.max(120, free.bottom - free.top);
+
+    // Solve the distance against an unshifted camera. The shift is a pure
+    // translation, so a board that fits a band of this height about the canvas
+    // centre still fits it about the band's centre — but measuring while the
+    // shift is applied counts the offset as overflow and pulls the camera much
+    // too far back.
+    this.stage.setViewShift(0);
+    this.rig.frame(this.board.framingPoints(PIECE_HEIGHTS.k + 0.3), {
+      marginX: 0.9,
+      marginY: 0.9 * (bandHeight / height),
+      aspect,
+    });
+    this.stage.setViewShift(Math.round(height / 2 - centre));
+  }
+
+  /** The vertical band of canvas no piece of chrome is covering. */
+  freeBand(height) {
+    const visible = (el) => el && !el.hidden && el.getBoundingClientRect().height > 0;
+    let top = 0;
+    let bottom = height;
+
+    const topbar = this.hud.el.topbar;
+    if (visible(topbar)) top = Math.max(top, topbar.getBoundingClientRect().bottom);
+
+    // Only the chrome that sits over the board counts. On a wide window the
+    // panel and controls are in the corners with the board between them, so
+    // they are only an obstruction once they span most of the width.
+    for (const el of [this.hud.el.panel, this.hud.el.controls]) {
+      if (!visible(el)) continue;
+      const rect = el.getBoundingClientRect();
+      if (rect.width < this.stage.canvas.clientWidth * 0.7) continue;
+      bottom = Math.min(bottom, rect.top);
+    }
+    return { top, bottom };
   }
 
   _wire() {
@@ -152,6 +200,11 @@ class App {
       this.openSetup();
     });
     hud.el.gameoverReview.addEventListener('click', () => hud.hideGameOver());
+
+    // Collapsing the move list frees a third of a phone screen, so reframe.
+    hud.el.panelToggle.addEventListener('click', () => {
+      requestAnimationFrame(() => this.frameBoard());
+    });
   }
 
   /* ---------------------------------------------------------- the position */
@@ -282,6 +335,8 @@ class App {
     this.playing = true;
 
     this.hud.showHint(matchMedia('(pointer: coarse)').matches);
+    // The chrome that appears with the game changes what space is free.
+    this.frameBoard();
     this.loop();
   }
 
