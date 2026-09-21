@@ -26,8 +26,9 @@ import os
 import random
 import re
 import socket
-import subprocess
 import sys
+import threading
+import time
 import threading
 import webbrowser
 import urllib.error
@@ -379,107 +380,163 @@ def llm_move(config, fen, moves, difficulty):
     )
 
 
-# ------------------------------------------------------------- cli opponent
+# ----------------------------------------------------------------- the relay
 
-def cli_move(config, fen, moves, difficulty):
-    """Run a command line program and read a move out of what it prints.
+class Relay:
+    """A game an AI joins over HTTP, rather than one spawned per move.
 
-    The command may use {fen}, {legal} and {difficulty} placeholders; whatever
-    it does not use is offered on stdin instead, so simple programs that just
-    read a prompt work without any placeholder at all.
+    The old command opponent started a fresh process for every move, so the
+    player had no memory of the game it was playing — no idea what it had been
+    planning, or why its pieces were where they were. Here one client connects
+    and stays for the whole game.
+
+    Two waits meet in the middle. The board asks for a move and blocks;
+    whatever is playing asks for its turn and blocks. Neither polls: each is
+    released the moment the other arrives. The AI side is plain HTTP, so it
+    does not matter whether it is an agent on this machine, a script calling an
+    API, or a model somewhere else with a fetch tool.
     """
-    command = (config.get("command") or "").strip()
-    if not command:
-        raise OpponentError("No CLI command is configured.", None)
 
-    timeout = int(config.get("timeout", DEFAULT_TIMEOUT))
-    san_list = ", ".join(m["san"] for m in moves)
-    prompt = (
-        f"{SYSTEM_PROMPT}\n\nPosition (FEN): {fen}\nLegal moves: {san_list}\n"
-        "Reply with one move from the list and nothing else."
-    )
+    # How long the board will wait for an AI that may not have connected yet.
+    DEFAULT_MOVE_TIMEOUT = 600
+    # How long a turn request blocks before answering "nothing yet, ask again".
+    DEFAULT_POLL_TIMEOUT = 25
+    # A client seen more recently than this counts as connected.
+    PRESENCE_WINDOW = 70
 
-    try:
-        argv = split_command(command)
-    except ValueError as exc:
-        raise OpponentError("The CLI command could not be parsed.", str(exc))
-    if not argv:
-        raise OpponentError("The CLI command is empty.", None)
+    def __init__(self):
+        self._cond = threading.Condition()
+        self._pending = None     # the position currently waiting for a move
+        self._answer = None      # {"id": n, "move": uci}
+        self._last_seen = 0.0
+        self._last_agent = None
+        self._moves_played = 0
+        self._seq = 0
 
-    argv = [
-        part.replace("{fen}", fen)
-            .replace("{legal}", san_list)
-            .replace("{difficulty}", difficulty or "medium")
-        for part in argv
-    ]
+    # -- the board's side ---------------------------------------------------
 
-    argv = resolve_program(argv)
+    def request_move(self, fen, moves, difficulty, config=None):
+        """Called by the turn loop. Blocks until a connected client answers."""
+        timeout = int((config or {}).get("timeout") or self.DEFAULT_MOVE_TIMEOUT)
 
-    try:
-        proc = subprocess.run(
-            argv,
-            input=prompt,
-            capture_output=True,
-            text=True,
-            timeout=timeout,
-            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
-        )
-    except FileNotFoundError:
-        raise OpponentError(f"Command not found: {argv[0]}", None)
-    except subprocess.TimeoutExpired:
-        raise OpponentError("The CLI opponent timed out.", f"after {timeout}s")
-    except OSError as exc:
-        raise OpponentError("The CLI opponent could not be started.", str(exc))
+        with self._cond:
+            self._seq += 1
+            turn_id = self._seq
+            self._pending = {
+                "id": turn_id,
+                "fen": fen,
+                "legal": moves,
+                "difficulty": difficulty or "medium",
+                "asked_at": time.time(),
+            }
+            self._answer = None
+            self._cond.notify_all()
 
-    output = (proc.stdout or "") + "\n" + (proc.stderr or "")
-    move = match_move(output, moves)
-    if move:
-        return move, {"exit_code": proc.returncode, "output": output.strip()[:400]}
+            deadline = time.monotonic() + timeout
+            while True:
+                if self._answer and self._answer["id"] == turn_id:
+                    move = self._answer["move"]
+                    self._answer = None
+                    self._pending = None
+                    self._moves_played += 1
+                    return move, {
+                        "source": "relay",
+                        "agent": self._last_agent,
+                        "note": "played by the connected AI",
+                    }
 
-    raise OpponentError(
-        "The CLI opponent did not return a legal move.",
-        {"exit_code": proc.returncode, "output": output.strip()[:600]},
-    )
+                # A newer request replaced this one — the game moved on (a new
+                # game, an undo). Stop waiting rather than hold the thread.
+                if self._pending is None or self._pending["id"] != turn_id:
+                    raise OpponentError("That turn was superseded.", None)
+
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    self._pending = None
+                    connected = self._is_connected()
+                    raise OpponentError(
+                        "No AI answered." if connected
+                        else "No AI has connected yet.",
+                        f"waited {timeout}s. Copy the instructions and give them to "
+                        "an AI that can make HTTP requests.",
+                    )
+                self._cond.wait(remaining)
+
+    def cancel(self):
+        """Drop whatever is waiting — a new game, or the setup screen."""
+        with self._cond:
+            self._pending = None
+            self._answer = None
+            self._cond.notify_all()
+
+    # -- the AI's side ------------------------------------------------------
+
+    def wait_for_turn(self, timeout, agent=None):
+        """Block until it is the AI's move, or until the wait runs out."""
+        timeout = max(1, min(int(timeout or self.DEFAULT_POLL_TIMEOUT), 120))
+        with self._cond:
+            self._last_seen = time.time()
+            if agent:
+                self._last_agent = agent[:80]
+            deadline = time.monotonic() + timeout
+
+            while self._pending is None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._cond.wait(remaining)
+                self._last_seen = time.time()
+
+            pending = self._pending
+            return {
+                "your_turn": True,
+                "id": pending["id"],
+                "fen": pending["fen"],
+                "legal": [m["san"] for m in pending["legal"]],
+                "legal_uci": [m["uci"] for m in pending["legal"]],
+                "color": "white" if " w " in pending["fen"] else "black",
+                "difficulty": pending["difficulty"],
+            }
+
+    def submit(self, turn_id, move):
+        """Take a move from the AI. Returns (ok, detail)."""
+        with self._cond:
+            self._last_seen = time.time()
+            if self._pending is None:
+                return False, "It is not your turn — nothing is waiting for a move."
+            if turn_id is not None and int(turn_id) != self._pending["id"]:
+                return False, (
+                    f"That turn has passed. The board is now on turn "
+                    f"{self._pending['id']}; ask for it again."
+                )
+
+            resolved = match_move(move, self._pending["legal"])
+            if not resolved:
+                legal = ", ".join(m["san"] for m in self._pending["legal"])
+                return False, f"{move!r} is not a legal move here. Choose one of: {legal}"
+
+            self._answer = {"id": self._pending["id"], "move": resolved}
+            self._cond.notify_all()
+            return True, resolved
+
+    # -- reporting ----------------------------------------------------------
+
+    def _is_connected(self):
+        return bool(self._last_seen) and (time.time() - self._last_seen) < self.PRESENCE_WINDOW
+
+    def status(self):
+        with self._cond:
+            return {
+                "connected": self._is_connected(),
+                "waiting_for_move": self._pending is not None,
+                "agent": self._last_agent,
+                "moves_played": self._moves_played,
+                "last_seen": round(time.time() - self._last_seen, 1) if self._last_seen else None,
+            }
 
 
-def split_command(command):
-    r"""Split a command line into argv, correctly on Windows too.
-
-    shlex in non-posix mode keeps the quote characters attached to the token,
-    so a perfectly ordinary quoted path — "C:\Program Files\thing.exe" —
-    comes out with the quotes still on it and is never found. Strip a matched
-    pair from each token; anything else is left exactly as written.
-    """
-    import shlex
-
-    if os.name == "nt":
-        parts = shlex.split(command, posix=False)
-        cleaned = []
-        for part in parts:
-            if len(part) >= 2 and part[0] == part[-1] and part[0] in "\"'":
-                part = part[1:-1]
-            cleaned.append(part)
-        return cleaned
-    return shlex.split(command)
-
-
-def resolve_program(argv):
-    """Turn argv[0] into something Windows can actually launch.
-
-    Bare names work on POSIX because the shell searches PATH. On Windows,
-    CreateProcess does not apply PATHEXT, so `claude` fails even though
-    `claude.cmd` is on PATH — which rules out every npm- or script-installed
-    tool, the majority of interesting CLI opponents. shutil.which does apply
-    PATHEXT, so resolve through it and hand subprocess a full path.
-    """
-    if not argv:
-        return argv
-    from shutil import which
-
-    found = which(argv[0])
-    if found:
-        return [found] + list(argv[1:])
-    return argv
+RELAY = Relay()
+SERVED_PORT = [None]
 
 
 class OpponentError(Exception):
@@ -492,7 +549,7 @@ class OpponentError(Exception):
 # ------------------------------------------------------------------ routing
 
 def handle_move(body):
-    kind = body.get("kind") or "builtin"
+    kind = body.get("kind") or "memory"
     fen = body.get("fen") or ""
     difficulty = body.get("difficulty") or "medium"
     config = body.get("config") or {}
@@ -501,18 +558,18 @@ def handle_move(body):
     if not moves:
         return {"error": "No legal moves were supplied with the position."}, 400
 
-    # "builtin" and "random" are the names this opponent shipped under first;
-    # keep accepting them so an older page or saved setting still works.
+    if kind == "relay":
+        move, detail = RELAY.request_move(fen, moves, difficulty, config)
+        return {"move": move, "detail": detail}, 200
+
+    # "builtin" and "random" are the names memory shipped under first; keep
+    # accepting them so an older page or saved setting still works.
     if kind in ("memory", "builtin", "random"):
         move, detail = memory_move(moves, difficulty, fen)
         return {"move": move, "detail": detail}, 200
 
     if kind == "http":
         move, detail = llm_move(config, fen, moves, difficulty)
-        return {"move": move, "detail": detail}, 200
-
-    if kind == "cli":
-        move, detail = cli_move(config, fen, moves, difficulty)
         return {"move": move, "detail": detail}, 200
 
     return {"error": f"Unknown opponent kind: {kind}"}, 400
@@ -537,26 +594,57 @@ def handle_health(body):
     except Exception as exc:  # noqa: BLE001 - reported to the user, never raised
         endpoint["error"] = str(exc)
 
-    cli_config = config.get("cli") or {}
-    command = (cli_config.get("command") or "").strip()
-    cli = {"configured": bool(command), "ok": False, "error": None}
-    if command:
-        try:
-            argv = split_command(command)
-            from shutil import which
-            cli["ok"] = bool(argv) and (which(argv[0]) is not None or os.path.isfile(argv[0]))
-            if not cli["ok"]:
-                cli["error"] = f"not on PATH: {argv[0] if argv else command}"
-        except ValueError as exc:
-            cli["error"] = str(exc)
-
     book = load_book()
     return {
         "memory": {"ok": True, "positions": len(book)},
-        "builtin": True,  # the name this reported under first
         "http": endpoint,
-        "cli": cli,
+        "relay": RELAY.status(),
+        "addresses": local_addresses(SERVED_PORT[0]) if SERVED_PORT[0] else [],
     }, 200
+
+
+def relay_instructions(origin):
+    """What the player copies and hands to an AI.
+
+    Deliberately says nothing about terminals, agents or SDKs: it is two HTTP
+    calls, so it reads the same whether it is pasted into a command line tool,
+    handed to a model with a fetch tool, or implemented against an API in
+    twenty lines.
+    """
+    return f"""You are playing a game of chess over HTTP. You are one of the players.
+
+The game is at {origin}
+
+Repeat these two steps until the game is over:
+
+1. GET {origin}/relay/turn
+   This call waits until it is your move, so it may take a while to answer.
+   When it is your move it returns JSON like:
+
+     {{"your_turn": true,
+       "id": 7,
+       "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+       "legal": ["a3", "a4", "Nf3", ...],
+       "color": "black"}}
+
+   If it returns {{"your_turn": false}} nothing is wrong — the other player is
+   still thinking. Just call it again.
+
+2. Decide your move, then POST it to {origin}/relay/move
+   Content-Type: application/json
+   Body: {{"id": <the id from step 1>, "move": "<one move from "legal">"}}
+
+   The reply is {{"ok": true}} if it was played, or {{"ok": false, "error": ...}}
+   with the reason if it was not — read the reason and try again.
+
+Rules:
+- Play only moves from the "legal" list you were given for that turn.
+- Send the "id" you were given. If you send an old one you will be told the
+  turn has passed; ask for the turn again.
+- Keep going. Do not stop after one move — loop until GET /relay/turn stops
+  coming back with your_turn, or the game visibly ends.
+- You are playing the colour the "color" field tells you. Play to win.
+"""
 
 
 class Handler(SimpleHTTPRequestHandler):
@@ -592,9 +680,55 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, must-revalidate")
         super().end_headers()
 
+    def _query(self):
+        from urllib.parse import parse_qs, urlsplit
+        return {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
+
+    def do_GET(self):
+        route = self.path.split("?", 1)[0].rstrip("/") or "/"
+
+        if route == "/relay/turn":
+            params = self._query()
+            turn = RELAY.wait_for_turn(
+                params.get("wait"),
+                agent=self.headers.get("User-Agent") or params.get("agent"),
+            )
+            if turn is None:
+                self._send_json({
+                    "your_turn": False,
+                    "note": "Not your turn yet. Ask again — this call waits for you.",
+                })
+            else:
+                self._send_json(turn)
+            return
+
+        if route == "/relay/status":
+            self._send_json(RELAY.status())
+            return
+
+        if route == "/relay":
+            body = relay_instructions(self._origin()).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self._no_store = True
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        super().do_GET()
+
+    def _origin(self):
+        host = self.headers.get("Host")
+        if host:
+            return f"http://{host}"
+        addresses = local_addresses(SERVED_PORT[0] or 8770)
+        return addresses[0]
+
     def do_POST(self):
         route = self.path.split("?", 1)[0].rstrip("/") or "/"
-        if route not in ("/move", "/health"):
+        if route not in ("/move", "/health", "/relay/move", "/relay/cancel"):
             self._send_json({"error": "not found"}, 404)
             return
 
@@ -609,6 +743,14 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             if route == "/move":
                 payload, status = handle_move(body)
+            elif route == "/relay/move":
+                ok, detail = RELAY.submit(body.get("id"), body.get("move") or "")
+                payload = ({"ok": True, "played": detail} if ok
+                           else {"ok": False, "error": detail})
+                status = 200
+            elif route == "/relay/cancel":
+                RELAY.cancel()
+                payload, status = {"ok": True}, 200
             else:
                 payload, status = handle_health(body)
         except OpponentError as exc:
@@ -649,6 +791,7 @@ def main():
         return 1
 
     server = ThreadingHTTPServer((args.host, args.port), Handler)
+    SERVED_PORT[0] = args.port
     addresses = local_addresses(args.port)
 
     print("AI Chess3D")

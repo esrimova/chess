@@ -70,21 +70,27 @@ Model:     (blank — or qwen/qwen3-4b-2507, gpt-4o-mini, …)
 API key:   (only if the endpoint wants one)
 ```
 
-**AI CLI** — an AI you run from a terminal. The gateway starts it, puts the
-position on stdin, and reads the move out of what it prints. `{fen}`,
-`{legal}` and `{difficulty}` are substituted into the command if you use them.
+**AI Connect** — the app waits on its port and your AI comes to it. Pick it,
+press Start, and copy the instructions it shows you. Give them to anything that
+can make HTTP requests: paste them into a command line agent, hand them to a
+model with a fetch tool, or write them against an API in twenty lines. Nothing
+to install, nothing to spawn, no command to get right.
+
+It is two calls:
 
 ```
-claude -p          # Claude Code, if you have it installed
-ollama run qwen2.5
+GET  /relay/turn    waits until it is your move, then returns the position
+                    and the legal moves
+POST /relay/move    {"id": <from the turn>, "move": "<one of legal>"}
 ```
 
-A fresh process runs per move, so a CLI opponent sees the position and the
-legal moves and nothing else — no history, no plan carried between turns.
+`GET /relay/turn` blocks until there is something to answer, so a client waits
+rather than polls. An illegal move is refused with the reason and the list of
+what is legal, and the turn stays open.
 
-Commands are resolved through `PATH` including `PATHEXT`, so npm- and
-script-installed tools work on Windows, where a bare name would otherwise
-fail to launch.
+The point of this over spawning a command per move: **one connection lasts the
+whole game**, so the AI remembers what it has been doing. A process started
+fresh each move is an amnesiac that sees one position and nothing else.
 
 ### Adding another kind of opponent
 
@@ -209,7 +215,7 @@ away, and it is what lets the same URL work from a phone on the same network.
 python run-tests.py
 ```
 
-Eighty-three tests in three suites, nothing mocked: the rules layer is checked
+Eighty-five tests in three suites, nothing mocked: the rules layer is checked
 against perft counts, the piece set against its own geometry, and the gateway by
 starting it as a real process and reaching it over real HTTP. The last gateway
 test plays a move against whatever model is listening on `127.0.0.1:1234`, and

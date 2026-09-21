@@ -83,6 +83,7 @@ class App {
 
     this.hud.fillThemes(themeList(), this.themeId);
     this.hud.writeSettings(stored);
+    if (this.hud.el.opponent.value === 'relay') this.onOpponentChanged();
     this.hud.el.theme.value = this.themeId;
     this.hud.el.themeLive.value = this.themeId;
     this.hud.syncOpponentFields();
@@ -182,6 +183,7 @@ class App {
     hud.el.start.addEventListener('click', () => this.startGame());
     hud.el.menu.addEventListener('click', () => this.openSetup());
     hud.el.testConnection.addEventListener('click', () => this.testConnection());
+    hud.el.opponent.addEventListener('change', () => this.onOpponentChanged());
 
     hud.el.theme.addEventListener('change', () => this.setTheme(hud.el.theme.value));
     hud.el.themeLive.addEventListener('change', () => this.setTheme(hud.el.themeLive.value));
@@ -243,6 +245,8 @@ class App {
 
   openSetup() {
     if (this.abort) this.abort.abort();
+    // Release anything blocked on the relay, or it holds the old position.
+    fetch('./relay/cancel', { method: 'POST' }).catch(() => {});
     this.playing = false;
     this.picker.enabled = false;
     this.idle();
@@ -257,18 +261,53 @@ class App {
 
     // 'builtin' is the name memory shipped under first; a saved setting from
     // then still selects it.
-    const kinds = { memory: 'memory', builtin: 'memory', http: 'http', cli: 'cli' };
-    const names = { memory: 'Memory', http: 'The AI endpoint', cli: 'The AI CLI' };
+    const kinds = { memory: 'memory', builtin: 'memory', http: 'http', relay: 'relay' };
+    const names = { memory: 'Memory', http: 'The AI endpoint', relay: 'The connected AI' };
     const kind = kinds[settings.opponent] || 'memory';
 
     const opponent = new RemoteEngine({
       kind,
       name: names[kind],
       difficulty: settings.difficulty,
-      config: kind === 'http' ? settings.http : settings.cli,
+      config: kind === 'http' ? settings.http : {},
     });
 
     return settings.side === 'b' ? { b: human, w: opponent } : { w: human, b: opponent };
+  }
+
+  /** Load the relay instructions and start watching for a connection. */
+  async onOpponentChanged() {
+    const kind = this.hud.el.opponent.value;
+    if (kind !== 'relay') {
+      this.stopWatchingRelay();
+      return;
+    }
+    try {
+      const text = await fetch('./relay', { cache: 'no-store' }).then((r) => r.text());
+      this.hud.setRelayInstructions(text);
+    } catch {
+      this.hud.setRelayInstructions('Could not load the instructions — is the gateway running?');
+    }
+    this.watchRelay();
+  }
+
+  watchRelay() {
+    this.stopWatchingRelay();
+    const tick = async () => {
+      try {
+        const status = await fetch('./relay/status', { cache: 'no-store' }).then((r) => r.json());
+        this.hud.setRelayState(status);
+      } catch {
+        this.hud.setRelayState(null);
+      }
+    };
+    tick();
+    this._relayWatch = setInterval(tick, 2500);
+  }
+
+  stopWatchingRelay() {
+    if (this._relayWatch) clearInterval(this._relayWatch);
+    this._relayWatch = null;
   }
 
   async testConnection() {
@@ -334,6 +373,7 @@ class App {
     this.rig.setSide(settings.side === 'b' ? 'b' : 'w', true);
     this.hud.showSetup(false);
     this.hud.hideGameOver();
+    this.stopWatchingRelay();
     this.playing = true;
 
     this.hud.showHint(matchMedia('(pointer: coarse)').matches);

@@ -36,7 +36,7 @@
       <select id="opponent">
         <option value="memory">Pre-installed memory</option>
         <optgroup label="AI">
-          <option value="cli">AI CLI</option>
+          <option value="relay">AI Connect</option>
           <option value="http">AI Endpoint</option>
         </optgroup>
       </select>
@@ -63,13 +63,17 @@
         or a hosted API.</p>
     </section>
 
-    <section class="field opponent-config" id="cli-config" hidden>
-      <label for="cli-command">Command</label>
-      <input id="cli-command" type="text" spellcheck="false" autocapitalize="off"
-             placeholder="claude -p">
-      <p class="hint">An AI you run from a terminal. The gateway starts it, puts the
-        position on stdin, and reads the move it prints. <code>{fen}</code>,
-        <code>{legal}</code> and <code>{difficulty}</code> are substituted if used.</p>
+    <section class="field opponent-config" id="relay-config" hidden>
+      <label>Give these instructions to your AI</label>
+      <div class="relay-box">
+        <pre id="relay-instructions">Loading…</pre>
+        <button id="copy-relay" class="ghost small" type="button">Copy</button>
+      </div>
+      <p class="hint">Any AI that can make HTTP requests: paste this into a command
+        line agent, hand it to a model with a fetch tool, or write it against an API.
+        It connects once and plays the whole game, so unlike a program started per
+        move it remembers what it has been doing.</p>
+      <p class="relay-state" id="relay-state">Nothing connected yet.</p>
     </section>
 
     <div class="row">

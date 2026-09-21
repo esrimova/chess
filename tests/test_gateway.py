@@ -243,7 +243,7 @@ def run_tests(base):
         assert status == 200, status
         assert data["memory"]["ok"] is True, data
         assert data["memory"]["positions"] > 100, data
-        assert "http" in data and "cli" in data
+        assert "http" in data and "relay" in data
 
     @test("health reports an unreachable endpoint honestly, without failing")
     def _():
@@ -263,15 +263,12 @@ def run_tests(base):
         finally:
             httpd.shutdown()
 
-    @test("health reports whether a CLI command exists on this machine")
+    @test("health reports the relay and the addresses to reach it on")
     def _():
-        _status, data = post(base + "/health", {"config": {"cli": {"command": sys.executable + " -c pass"}}})
-        assert data["cli"]["configured"] is True
-        assert data["cli"]["ok"] is True, data["cli"]
-
-        _status, data = post(base + "/health", {"config": {"cli": {"command": "definitely-not-a-real-program"}}})
-        assert data["cli"]["ok"] is False
-        assert data["cli"]["error"], "a missing command reported no reason"
+        _status, data = post(base + "/health", {"config": {}})
+        assert "relay" in data, data
+        assert "connected" in data["relay"], data
+        assert isinstance(data.get("addresses"), list), data
 
     # ------------------------------------------------------------- builtin
     section("gateway — pre-installed memory")
@@ -551,107 +548,206 @@ def run_tests(base):
         assert "reach" in data["error"].lower(), data
         assert time.time() - started < 20, "it took too long to give up"
 
-    # ----------------------------------------------------------------- cli
-    section("gateway — a command line opponent")
+    # --------------------------------------------------------------- relay
+    section("gateway — an AI connected over the relay")
 
-    @test("a command that prints a move is accepted")
-    def _():
-        status, data = post(base + "/move", {
-            "kind": "cli", "fen": OPENING_FEN, "legal": OPENING_MOVES,
-            "config": {"command": f'"{sys.executable}" -c "print(\'e4\')"'},
-        })
-        assert status == 200, data
-        assert data.get("move") == "e2e4", data
+    def ask_for_turn(wait=5, timeout=30):
+        with urllib.request.urlopen(base + "/relay/turn?wait=%d" % wait, timeout=timeout) as r:
+            return json.loads(r.read())
 
-    @test("the position reaches the command on stdin")
+    def play_as_ai(moves_to_send, turns=1, patience=25):
+        """A real relay client in a thread, doing exactly what the published
+        instructions tell an AI to do: ask for the turn, then post a move."""
+        seen = []
+
+        def run():
+            for i in range(turns):
+                deadline = time.time() + patience
+                turn = None
+                while time.time() < deadline:
+                    try:
+                        candidate = ask_for_turn()
+                    except Exception as exc:  # noqa: BLE001
+                        seen.append({"error": repr(exc)})
+                        return
+                    if candidate.get("your_turn"):
+                        turn = candidate
+                        break
+                if not turn:
+                    seen.append({"error": "never got a turn"})
+                    return
+                seen.append(turn)
+                move = moves_to_send[min(i, len(moves_to_send) - 1)]
+                _status, reply = post(base + "/relay/move", {"id": turn["id"], "move": move})
+                seen.append(reply)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        return thread, seen
+
+    @test("the instructions are served, and say what to do")
     def _():
-        script = "import sys; d=sys.stdin.read(); print('Nf3' if 'KQkq' in d else 'no position')"
+        status, body, _headers = get(base + "/relay")
+        assert status == 200, status
+        text = body.decode("utf-8")
+        assert "/relay/turn" in text and "/relay/move" in text, text[:200]
+        assert "legal" in text and "id" in text
+        # Transport-agnostic: nothing that assumes a terminal or an install.
+        for word in ("terminal", "shell", "stdin", "npm", "pip install"):
+            assert word not in text.lower(), "instructions mention " + word
+
+    @test("a connected client is handed the turn and its move is played")
+    def _():
+        post(base + "/relay/cancel", {})
+        thread, seen = play_as_ai(["Nf3"])
         status, data = post(base + "/move", {
-            "kind": "cli", "fen": OPENING_FEN, "legal": OPENING_MOVES,
-            "config": {"command": f'"{sys.executable}" -c "{script}"'},
-        })
+            "kind": "relay", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+            "config": {"timeout": 30},
+        }, timeout=60)
+        thread.join(timeout=15)
         assert status == 200, data
         assert data.get("move") == "g1f3", data
+        assert data["detail"]["source"] == "relay", data
+        turn = seen[0]
+        assert turn["fen"] == OPENING_FEN, turn
+        assert "Nf3" in turn["legal"], turn
+        assert turn["color"] == "white", turn
 
-    @test("{fen} and {difficulty} are substituted into the command")
+    @test("the turn call waits for the board instead of answering immediately")
     def _():
-        script = "import sys; print('d4' if sys.argv[1].startswith('rnbq') and sys.argv[2]=='hard' else 'e4')"
-        status, data = post(base + "/move", {
-            "kind": "cli", "fen": OPENING_FEN, "legal": OPENING_MOVES,
-            "difficulty": "hard",
-            "config": {"command": f'"{sys.executable}" -c "{script}" {{fen}} {{difficulty}}'},
-        })
-        assert status == 200, data
+        post(base + "/relay/cancel", {})
+        started = time.time()
+        data = ask_for_turn(wait=2, timeout=20)
+        waited = time.time() - started
+        assert data["your_turn"] is False, data
+        assert waited >= 1.5, "returned after %.2fs instead of waiting" % waited
+
+    @test("UCI is accepted as well as SAN")
+    def _():
+        post(base + "/relay/cancel", {})
+        thread, _seen = play_as_ai(["d2d4"])
+        _status, data = post(base + "/move", {
+            "kind": "relay", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+            "config": {"timeout": 30},
+        }, timeout=60)
+        thread.join(timeout=15)
         assert data.get("move") == "d2d4", data
 
-    @test("a command that prints nonsense fails honestly")
+    @test("an illegal move is refused with the reason, and the turn stays open")
     def _():
-        status, data = post(base + "/move", {
-            "kind": "cli", "fen": OPENING_FEN, "legal": OPENING_MOVES,
-            "config": {"command": f'"{sys.executable}" -c "print(\'banana\')"'},
-        })
-        assert status == 200, status
-        assert not data.get("move"), f"a move was invented: {data}"
-        assert "error" in data
-        assert "banana" in json.dumps(data["detail"]), data
+        post(base + "/relay/cancel", {})
+        results = []
 
-    @test("a command that does not exist is reported, not crashed on")
+        def run():
+            deadline = time.time() + 25
+            turn = None
+            while time.time() < deadline and not turn:
+                candidate = ask_for_turn()
+                if candidate.get("your_turn"):
+                    turn = candidate
+            if not turn:
+                results.append({"ok": False, "error": "never got a turn"})
+                return
+            _s, bad = post(base + "/relay/move", {"id": turn["id"], "move": "Qxh8"})
+            results.append(bad)
+            _s, good = post(base + "/relay/move", {"id": turn["id"], "move": "e4"})
+            results.append(good)
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        _status, data = post(base + "/move", {
+            "kind": "relay", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+            "config": {"timeout": 30},
+        }, timeout=60)
+        thread.join(timeout=15)
+        assert results[0]["ok"] is False, results[0]
+        assert "not a legal move" in results[0]["error"], results[0]
+        assert "e4" in results[0]["error"], "the refusal should list what is legal"
+        assert results[1]["ok"] is True, results[1]
+        assert data.get("move") == "e2e4", data
+
+    @test("a move sent when nothing is waiting is refused")
     def _():
-        status, data = post(base + "/move", {
-            "kind": "cli", "fen": OPENING_FEN, "legal": OPENING_MOVES,
-            "config": {"command": "definitely-not-a-real-program --play"},
-        })
-        assert status == 200, status
-        assert "error" in data
-        assert "not found" in data["error"].lower(), data
+        post(base + "/relay/cancel", {})
+        _status, data = post(base + "/relay/move", {"id": 999, "move": "e4"})
+        assert data["ok"] is False, data
+        assert "not your turn" in data["error"].lower(), data
 
-    @test("a command is found through PATH, including PATHEXT on Windows")
+    @test("a stale turn id is refused, so an old answer cannot land late")
     def _():
-        # Windows CreateProcess does not apply PATHEXT for a bare name, so an
-        # npm- or script-installed tool fails to launch even though it is on
-        # PATH. Resolve through shutil.which and hand subprocess a full path.
-        import server as gw
-        from shutil import which
+        post(base + "/relay/cancel", {})
+        thread, _seen = play_as_ai(["e4"])
+        post(base + "/move", {
+            "kind": "relay", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+            "config": {"timeout": 30},
+        }, timeout=60)
+        thread.join(timeout=15)
+        _status, data = post(base + "/relay/move", {"id": 1, "move": "e4"})
+        assert data["ok"] is False, data
 
-        resolved = gw.resolve_program(["python", "-c", "pass"])
-        assert os.path.isabs(resolved[0]), resolved
-        assert resolved[1:] == ["-c", "pass"], resolved
-        assert os.path.isfile(resolved[0]), resolved
-        # An unknown program is left alone, so the error names what was asked for.
-        assert gw.resolve_program(["definitely-not-a-real-program"]) ==             ["definitely-not-a-real-program"]
-        assert gw.resolve_program([]) == []
-
-    @test("a bare command name on PATH actually runs")
+    @test("with nothing connected the board gives up and says so")
     def _():
-        # `python` rather than sys.executable: a bare name is the case that
-        # fails without PATHEXT resolution.
-        script = "print('Nc3')"
-        status, data = post(base + "/move", {
-            "kind": "cli", "fen": OPENING_FEN, "legal": OPENING_MOVES,
-            "config": {"command": f'python -c "{script}"'},
-        })
-        assert status == 200, data
-        assert data.get("move") == "b1c3", data
-
-    @test("no command configured is reported clearly")
-    def _():
-        status, data = post(base + "/move", {
-            "kind": "cli", "fen": OPENING_FEN, "legal": OPENING_MOVES, "config": {},
-        })
-        assert "error" in data and "configured" in data["error"], data
-
-    @test("a command that hangs is killed at the timeout")
-    def _():
-        script = "import time; time.sleep(30)"
+        post(base + "/relay/cancel", {})
         started = time.time()
         status, data = post(base + "/move", {
-            "kind": "cli", "fen": OPENING_FEN, "legal": OPENING_MOVES,
-            "config": {"command": f'"{sys.executable}" -c "{script}"', "timeout": 3},
+            "kind": "relay", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+            "config": {"timeout": 2},
         }, timeout=30)
-        elapsed = time.time() - started
-        assert "error" in data, data
-        assert "timed out" in data["error"].lower(), data
-        assert elapsed < 15, f"the timeout was not honoured ({elapsed:.1f}s)"
+        assert status == 200, status
+        assert not data.get("move"), "a move was invented: %r" % (data,)
+        # Either wording is correct and they mean different things: nothing has
+        # ever connected, or something connected recently and did not answer.
+        assert data["error"] in ("No AI has connected yet.", "No AI answered."), data
+        assert "instructions" in data["detail"], data
+        assert time.time() - started < 20, "it did not give up on time"
+
+    @test("cancelling releases a board that is waiting")
+    def _():
+        post(base + "/relay/cancel", {})
+        result = {}
+
+        def ask():
+            _s, d = post(base + "/move", {
+                "kind": "relay", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+                "config": {"timeout": 60},
+            }, timeout=90)
+            result["data"] = d
+
+        thread = threading.Thread(target=ask, daemon=True)
+        thread.start()
+        time.sleep(1.5)
+        post(base + "/relay/cancel", {})
+        thread.join(timeout=25)
+        assert result, "the waiting request never returned"
+        assert "error" in result["data"], result["data"]
+
+    @test("status shows a client once it has asked for a turn")
+    def _():
+        post(base + "/relay/cancel", {})
+        thread, _seen = play_as_ai(["e4"])
+        time.sleep(1.2)
+        _s, body, _h = get(base + "/relay/status")
+        status = json.loads(body)
+        assert status["connected"] is True, status
+        post(base + "/move", {
+            "kind": "relay", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+            "config": {"timeout": 30},
+        }, timeout=60)
+        thread.join(timeout=15)
+
+    @test("a whole sequence of turns runs over one connection")
+    def _():
+        post(base + "/relay/cancel", {})
+        thread, seen = play_as_ai(["e4", "Nf3", "d4"], turns=3)
+        played = []
+        for _ in range(3):
+            _s, data = post(base + "/move", {
+                "kind": "relay", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+                "config": {"timeout": 30},
+            }, timeout=60)
+            played.append(data.get("move"))
+        thread.join(timeout=20)
+        assert played == ["e2e4", "g1f3", "d2d4"], played
 
     # ------------------------------------------------------- reply parsing
     section("gateway — reading a move out of a reply")

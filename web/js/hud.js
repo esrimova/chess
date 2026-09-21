@@ -37,8 +37,10 @@ export class Hud {
       httpUrl: $('http-url'),
       httpModel: $('http-model'),
       httpKey: $('http-key'),
-      cliConfig: $('cli-config'),
-      cliCommand: $('cli-command'),
+      relayConfig: $('relay-config'),
+      relayInstructions: $('relay-instructions'),
+      relayState: $('relay-state'),
+      copyRelay: $('copy-relay'),
       difficulty: $('difficulty'),
       side: $('side'),
       theme: $('theme'),
@@ -91,6 +93,23 @@ export class Hud {
       this._applyPanelState();
     });
 
+    this.el.copyRelay.addEventListener('click', async () => {
+      const text = this.el.relayInstructions.textContent;
+      try {
+        await navigator.clipboard.writeText(text);
+        this.el.copyRelay.textContent = 'Copied';
+      } catch {
+        // Clipboard access can be refused; select it so it can be copied by hand.
+        const range = document.createRange();
+        range.selectNodeContents(this.el.relayInstructions);
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+        this.el.copyRelay.textContent = 'Select all + copy';
+      }
+      setTimeout(() => { this.el.copyRelay.textContent = 'Copy'; }, 2200);
+    });
+
     this.el.promotion.querySelectorAll('[data-piece]').forEach((button) => {
       button.addEventListener('click', () => {
         const choice = button.dataset.piece;
@@ -135,15 +154,15 @@ export class Hud {
   syncOpponentFields() {
     const kind = this.el.opponent.value;
     this.el.httpConfig.hidden = kind !== 'http';
-    this.el.cliConfig.hidden = kind !== 'cli';
-    this.el.testConnection.hidden = false;
+    this.el.relayConfig.hidden = kind !== 'relay';
+    this.el.testConnection.hidden = kind === 'relay';
 
     const hints = {
       memory: 'Not an AI. It plays a memorised opening book, then falls back to taking '
         + 'whatever is worth most. No search, no thinking, no setup.',
       http: 'An AI reached over HTTP. Your own machine or anywhere you can reach it.',
-      cli: 'An AI you run from a terminal. A fresh process each move, so it sees the '
-        + 'position and nothing else.',
+      relay: 'The app waits on a port; your AI connects to it and plays. One '
+        + 'session for the whole game, so it remembers what it is doing.',
     };
     this.el.opponentHint.textContent = hints[kind] || '';
     this.setSetupStatus('');
@@ -168,9 +187,6 @@ export class Hud {
         model: this.el.httpModel.value.trim(),
         apiKey: this.el.httpKey.value,
       },
-      cli: {
-        command: this.el.cliCommand.value.trim(),
-      },
     };
   }
 
@@ -189,7 +205,6 @@ export class Hud {
       if (settings.http.model) this.el.httpModel.value = settings.http.model;
       if (settings.http.apiKey) this.el.httpKey.value = settings.http.apiKey;
     }
-    if (settings.cli && settings.cli.command) this.el.cliCommand.value = settings.cli.command;
     this.syncOpponentFields();
   }
 
@@ -219,6 +234,31 @@ export class Hud {
 
   setThinking(on) {
     this.el.thinking.hidden = !on;
+  }
+
+  /** Show the instructions the player hands to their AI. */
+  setRelayInstructions(text) {
+    this.el.relayInstructions.textContent = text;
+  }
+
+  /** Report whether anything has connected to the relay. */
+  setRelayState(status) {
+    const el = this.el.relayState;
+    if (!status) {
+      el.textContent = 'Could not reach the gateway.';
+      el.className = 'relay-state';
+      return;
+    }
+    if (status.connected) {
+      const who = status.agent ? ` (${status.agent.split('/')[0]})` : '';
+      el.textContent = status.waiting_for_move
+        ? `Connected${who} — it is your AI's move`
+        : `Connected${who} — ready`;
+      el.className = 'relay-state live';
+    } else {
+      el.textContent = 'Nothing connected yet. Start the game, then give your AI the instructions.';
+      el.className = 'relay-state';
+    }
   }
 
   /** Name the opening while memory is still following a line it knows. */

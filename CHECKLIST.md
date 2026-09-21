@@ -35,7 +35,7 @@ failed approach is information.
 
 ```bash
 python server.py        # then open http://127.0.0.1:8770
-python run-tests.py     # 83 tests: logic, geometry, gateway
+python run-tests.py     # 85 tests: logic, geometry, gateway
 ```
 
 ### Architectural rule that governs every item
@@ -388,15 +388,19 @@ validate; re-ask; fail honestly.
   reason, the status line read *Stopped — the opponent could not move*, and no move
   was played.
 
-**10.4 CLI opponent** — spawn, feed the position, read the move, clean up.
+**10.4 AI Connect (the relay)** — the app waits on its port; the AI joins and
+plays the whole game over one connection.
 - [x] Implementation
-- [x] Backend testing — a real command returning a move; a bare name resolved
-  through `PATH`/`PATHEXT` and run; the position arriving on stdin; `{fen}` and
-  `{difficulty}` substitution; nonsense output failing honestly; a missing command
-  reported; a hanging command killed at the timeout.
-- [x] Frontend testing — **`claude -p` played `e4` from the opening position**
-  through the gateway in 4.3 s, so Claude Code works as an opponent with no API
-  key and no code change.
+- [x] Backend testing — a real relay client in a thread doing exactly what the
+  published instructions say: the turn handed over and the move played; the turn
+  call blocking rather than returning empty; SAN and UCI both accepted; an illegal
+  move refused with the reason while the turn stays open; a stale id refused; a
+  move with nothing waiting refused; the board giving up honestly when nothing
+  connects; a cancel releasing a waiting board; presence reported; three turns
+  over one connection.
+- [x] Frontend testing — **a game played through the browser against a client
+  connected from a shell**: `1.e4 c5 2.Nf3 d6`, the Sicilian, with the moves
+  arriving over the relay and the board showing the connected agent in its detail.
 
 > **Log (10.2) — a blank model is not always "whatever is loaded".** The
 > contract inherited from the AI Interface project is that a blank model field
@@ -411,6 +415,17 @@ validate; re-ask; fail honestly.
 > no was reported as unreachable, which points at entirely the wrong fix. HTTP
 > errors are now caught separately and the endpoint's own message is passed
 > through verbatim.
+>
+> **Log (10.4) — spawning was the wrong shape, and the user said so.** The CLI
+> opponent started a fresh process for every move, which meant the player had
+> no memory of the game it was in: one position, one answer, then gone. It also
+> made the setup a command line the player had to compose correctly, and every
+> Windows bug below came from that. Replaced by the relay, where the app waits
+> on its port and the AI connects to it — one session for the whole game, and
+> the same two HTTP calls whether the other end is an agent, a script, or a
+> model with a fetch tool. The spawning code, and the two fixes below, are gone
+> with it; they are kept here because they are what a future attempt to spawn
+> processes on Windows will run into again.
 >
 > **Log (10.4) — bare command names could not launch on Windows.** Found by
 > trying to play the `claude` CLI as an opponent. npm installs it as a `.cmd`
@@ -602,8 +617,8 @@ normalise six independently generated meshes to one consistent piece height.
 |---|---|---|
 | `tests/logic.test.mjs` | 29 | coordinate contract, rules, perft, a full game |
 | `tests/geometry.test.mjs` | 11 | the generated piece set |
-| `tests/test_gateway.py` | 43 | serving, health, all three opponents, reply parsing |
-| **Total** | **83** | all passing |
+| `tests/test_gateway.py` | 45 | serving, health, all three opponents, reply parsing |
+| **Total** | **85** | all passing |
 
 The gateway suite's last test plays against whatever real model is listening on
 `127.0.0.1:1234` and skips with a notice when nothing is. It ran for real against
