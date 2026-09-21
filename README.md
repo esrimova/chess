@@ -1,0 +1,199 @@
+# Chess3D
+
+A 3D chess board that runs in a browser, plays against any AI you can point it
+at, and needs nothing installed to get started.
+
+Clone it, run it, pick a theme, plug in an endpoint. That is the whole setup.
+
+```bash
+git clone https://github.com/esrimova/chess
+cd chess
+python server.py
+```
+
+Then open **http://127.0.0.1:8770**. The server prints your LAN address too —
+open that on a phone and you get the same board, same controls, same app.
+
+There is no build step, no `npm install`, and no Python packages to install.
+The server is standard library only; Three.js and chess.js are vendored in
+`web/js/vendor/` at pinned versions.
+
+---
+
+## Playing
+
+| | |
+|---|---|
+| **Move a piece** | Click it, then click the square. Legal squares light up: a dot is an empty square, an outline is something to take. |
+| **Turn the board** | Ctrl-drag. A full 360°, in either direction, with no stop. |
+| **Zoom** | Scroll wheel. |
+| **On a phone** | One finger for pieces, two fingers to turn, pinch to zoom. |
+
+The buttons on the right flip to the other side, spin the board, reset the
+view, and take a move back.
+
+---
+
+## Opponents
+
+Four, all behind the same interface. Choose one on the setup screen.
+
+**Built-in** — plays immediately, no configuration. It has no rules of its own:
+it picks from the legal moves the board hands it, and difficulty changes its
+taste rather than its depth. A sparring partner, not an engine.
+
+**AI endpoint** — anything that speaks OpenAI-compatible
+`/v1/chat/completions`. LM Studio, Ollama, llama.cpp, vLLM, or a hosted API.
+Leave the model blank to use whatever is already loaded.
+
+```
+Endpoint:  http://127.0.0.1:1234
+Model:     (blank — or qwen/qwen3-4b-2507, gpt-4o-mini, …)
+API key:   (only if the endpoint wants one)
+```
+
+**Command line** — a program on this machine. The gateway runs it, puts the
+position on stdin, and reads the move out of what it prints. `{fen}`,
+`{legal}` and `{difficulty}` are substituted into the command if you use them.
+
+```
+ollama run qwen2.5
+```
+
+**Two players** — both sides on one board.
+
+### Adding another kind of opponent
+
+Every opponent implements one method:
+
+```js
+getMove(fen, legalMoves, signal) => Promise<move>
+```
+
+The human is one. A remote model is another. Add a third in
+`web/js/engines.js`, or a new `kind` in `handle_move()` in `server.py`, and
+nothing else in the application changes.
+
+**An engine never moves a piece.** It returns a string; `web/js/game.js`
+decides whether that was legal. A confused model can fail to answer, but it
+cannot corrupt a game — and when one fails three times in a row you are told
+so plainly, rather than having a move quietly substituted.
+
+---
+
+## Themes
+
+A theme is an entry in `web/themes.json`. It restyles the background, the
+board and the pieces together, and switching one mid-game keeps the position,
+because only the materials change — no geometry is rebuilt.
+
+```json
+{
+  "id": "slate",
+  "name": "Slate",
+  "background": { "top": "#3a3f46", "bottom": "#0c0e11" },
+  "fog":        { "color": "#14171b", "near": 16, "far": 42 },
+  "board": {
+    "light": { "color": "#cfd4da", "roughness": 0.3, "metalness": 0.0 },
+    "dark":  { "color": "#2b3138", "roughness": 0.3, "metalness": 0.0 },
+    "frame": { "color": "#191d22", "roughness": 0.4, "metalness": 0.1 },
+    "label": "#8b939c"
+  },
+  "pieces": {
+    "w": { "color": "#eceff2", "roughness": 0.25, "metalness": 0.0 },
+    "b": { "color": "#22262b", "roughness": 0.3,  "metalness": 0.05 }
+  },
+  "highlight": {
+    "select": "#ffce54", "move": "#8fd9a8", "capture": "#e8695f",
+    "check": "#ff5252", "last": "#e0a53a"
+  },
+  "lighting": {
+    "hemi": { "sky": "#aab4c0", "ground": "#1a1d21", "intensity": 0.6 },
+    "key":  { "color": "#ffffff", "intensity": 2.4, "position": [6, 11, 7] },
+    "fill": { "color": "#9fb7d8", "intensity": 0.5, "position": [-7, 5, -5] },
+    "envIntensity": 1.0,
+    "exposure": 1.0
+  }
+}
+```
+
+Add it to the `themes` array and reload. No code change.
+
+Three ship with the repository: **Classic Wood**, **Marble** and **Neon**.
+
+---
+
+## The pieces
+
+Generated in code, not loaded from files — so a fresh clone plays with no
+assets to download. Five of the six are lathe profiles, which is what a turned
+Staunton piece actually is; the knight is an extruded silhouette, because it is
+the one piece that is not a surface of revolution.
+
+Geometry is shared across every piece of a type and colour lives entirely in
+the material, so a full set is six pieces' worth of geometry however many are
+on the board.
+
+---
+
+## How it fits together
+
+```
+server.py              the gateway: serves the page, reaches the opponents
+web/
+  index.html
+  themes.json          themes live here, not in code
+  css/style.css
+  js/
+    coords.js          square names <-> world positions. The one contract.
+    game.js            rules (chess.js behind our own interface)
+    pieces.js          procedural geometry
+    board.js           squares, frame, labels, highlights
+    scene.js           renderer, lights, environment, frame loop
+    camera.js          orbit, zoom, flip, spin
+    animate.js         tween queue
+    picker.js          pointer -> square, click vs drag
+    engines.js         the engine boundary
+    hud.js             the 2D chrome
+    main.js            wiring and the turn loop
+```
+
+One rule holds the whole thing together: **the 3D layer never knows a chess
+rule, and the rules layer never knows about 3D.** They meet in `main.js`, and
+they speak only in square names. That is what makes a theme or an opponent
+swappable instead of a rewrite.
+
+---
+
+## Why there is a server at all
+
+Because the page and the model calls have to share an origin. A page opened
+from the filesystem cannot reach a local model without tripping over CORS, and
+a page hosted over HTTPS elsewhere cannot reach `http://127.0.0.1` at all on
+some browsers. Serving both from one small local process makes all of that go
+away, and it is what lets the same URL work from a phone on the same network.
+
+`python server.py --host 127.0.0.1` restricts it to this machine only.
+
+---
+
+## Tests
+
+```bash
+python run-tests.py
+```
+
+Seventy-five tests in three suites, nothing mocked: the rules layer is checked
+against perft counts, the piece set against its own geometry, and the gateway by
+starting it as a real process and reaching it over real HTTP. The last gateway
+test plays a move against whatever model is listening on `127.0.0.1:1234`, and
+skips with a notice when nothing is.
+
+`CHECKLIST.md` records what was built and every place the first approach had to
+change, with the reason. Worth reading before fixing anything.
+
+---
+
+## Licence
+
+MIT.

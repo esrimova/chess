@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
+<meta name="color-scheme" content="dark">
+<meta name="theme-color" content="#0b0907">
+<title>Chess3D</title>
+<link rel="stylesheet" href="./css/style.css">
+</head>
+<body>
+
+<div id="stage">
+  <canvas id="view"></canvas>
+</div>
+
+<!-- Loading -->
+<div id="loader" class="screen">
+  <div class="loader-art" aria-hidden="true">
+    <span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span>
+    <span></span><span></span><span></span><span></span>
+  </div>
+  <p class="loader-text">Setting the board</p>
+</div>
+
+<!-- Setup -->
+<div id="setup" class="screen" hidden>
+  <div class="sheet">
+    <h1>Chess<span>3D</span></h1>
+    <p class="sub">Pick an opponent, then play. Everything runs from this machine.</p>
+
+    <section class="field">
+      <label for="opponent">Opponent</label>
+      <select id="opponent">
+        <option value="builtin">Built-in — no setup needed</option>
+        <option value="http">AI endpoint — OpenAI-compatible</option>
+        <option value="cli">Command line program</option>
+        <option value="human">Two players, one board</option>
+      </select>
+      <p class="hint" id="opponent-hint"></p>
+    </section>
+
+    <section class="field opponent-config" id="http-config" hidden>
+      <label for="http-url">Endpoint</label>
+      <input id="http-url" type="url" spellcheck="false" autocapitalize="off"
+             placeholder="http://127.0.0.1:1234" value="http://127.0.0.1:1234">
+      <div class="row">
+        <div>
+          <label for="http-model">Model <span class="opt">optional</span></label>
+          <input id="http-model" type="text" spellcheck="false" autocapitalize="off"
+                 placeholder="whatever is loaded">
+        </div>
+        <div>
+          <label for="http-key">API key <span class="opt">optional</span></label>
+          <input id="http-key" type="password" spellcheck="false" placeholder="not needed locally">
+        </div>
+      </div>
+      <p class="hint">Anything that speaks <code>/v1/chat/completions</code>: LM Studio,
+        Ollama, llama.cpp, vLLM, or a hosted API.</p>
+    </section>
+
+    <section class="field opponent-config" id="cli-config" hidden>
+      <label for="cli-command">Command</label>
+      <input id="cli-command" type="text" spellcheck="false" autocapitalize="off"
+             placeholder="ollama run qwen2.5">
+      <p class="hint">Run with the position on stdin. <code>{fen}</code>,
+        <code>{legal}</code> and <code>{difficulty}</code> are substituted if you use them.</p>
+    </section>
+
+    <div class="row">
+      <section class="field">
+        <label for="difficulty">Difficulty</label>
+        <select id="difficulty">
+          <option value="easy">Easy</option>
+          <option value="medium" selected>Medium</option>
+          <option value="hard">Hard</option>
+        </select>
+      </section>
+      <section class="field">
+        <label for="side">You play</label>
+        <select id="side">
+          <option value="w" selected>White</option>
+          <option value="b">Black</option>
+        </select>
+      </section>
+    </div>
+
+    <section class="field">
+      <label for="theme">Theme</label>
+      <select id="theme"></select>
+    </section>
+
+    <div class="actions">
+      <button id="test-connection" class="ghost" type="button" hidden>Test connection</button>
+      <button id="start" class="primary" type="button">Start game</button>
+    </div>
+    <p class="status-line" id="setup-status"></p>
+  </div>
+</div>
+
+<!-- In game -->
+<header id="topbar" hidden>
+  <button id="menu" class="icon" type="button" title="Setup" aria-label="Setup">☰</button>
+  <div class="turn">
+    <span class="dot" id="turn-dot"></span>
+    <span id="status-text">White to move</span>
+  </div>
+  <div class="spacer"></div>
+  <div id="thinking" hidden>
+    <span class="pulse"></span><span id="thinking-text">Thinking</span>
+    <button id="cancel-think" class="ghost small" type="button">Cancel</button>
+  </div>
+</header>
+
+<div id="controls" hidden>
+  <button id="btn-flip" class="icon" type="button" title="Flip sides" aria-label="Flip sides">⇅</button>
+  <button id="btn-spin" class="icon" type="button" title="Spin the board" aria-label="Spin the board">⟳</button>
+  <button id="btn-reset-view" class="icon" type="button" title="Reset view" aria-label="Reset view">⌖</button>
+  <button id="btn-undo" class="icon" type="button" title="Take back" aria-label="Take back">↶</button>
+  <select id="theme-live" title="Theme" aria-label="Theme"></select>
+</div>
+
+<aside id="panel" hidden>
+  <div class="panel-head">
+    <span id="panel-title">Moves</span>
+    <button id="panel-toggle" class="ghost small" type="button">Hide</button>
+  </div>
+  <ol id="moves"></ol>
+  <div id="captured"></div>
+</aside>
+
+<!-- Promotion -->
+<div id="promotion" class="screen dim" hidden>
+  <div class="sheet narrow">
+    <h2>Promote to</h2>
+    <div class="promo-row">
+      <button data-piece="q" type="button">Queen</button>
+      <button data-piece="r" type="button">Rook</button>
+      <button data-piece="b" type="button">Bishop</button>
+      <button data-piece="n" type="button">Knight</button>
+    </div>
+  </div>
+</div>
+
+<!-- Game over -->
+<div id="gameover" class="screen dim" hidden>
+  <div class="sheet narrow">
+    <h2 id="gameover-text">Checkmate</h2>
+    <div class="actions center">
+      <button id="gameover-review" class="ghost" type="button">Look at the board</button>
+      <button id="gameover-new" class="primary" type="button">New game</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast" role="status" aria-live="polite" hidden></div>
+
+<p id="hint-bar" hidden>Ctrl-drag to turn the board · scroll to zoom</p>
+
+<script type="module" src="./js/main.js"></script>
+</body>
+</html>

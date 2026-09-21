@@ -1,0 +1,99 @@
+{
+  "_comment": "A theme is an entry in this file. Adding one is a JSON edit, never a code change. Each entry restyles the background, the board and the pieces together, so a theme reads as one designed object rather than a recoloured default.",
+  "default": "wood",
+  "themes": [
+    {
+      "id": "wood",
+      "name": "Classic Wood",
+      "summary": "Boxwood and walnut on a dark studio floor.",
+      "background": { "top": "#3a2c20", "bottom": "#0b0907" },
+      "fog": { "color": "#130e0a", "near": 16, "far": 42 },
+      "board": {
+        "light": { "color": "#d9b782", "roughness": 0.52, "metalness": 0.0 },
+        "dark": { "color": "#6b4126", "roughness": 0.48, "metalness": 0.0 },
+        "frame": { "color": "#33200f", "roughness": 0.4, "metalness": 0.06 },
+        "label": "#cfae7e"
+      },
+      "pieces": {
+        "w": { "color": "#f0e3c6", "roughness": 0.36, "metalness": 0.0, "envMapIntensity": 0.9 },
+        "b": { "color": "#2a1a11", "roughness": 0.38, "metalness": 0.0, "envMapIntensity": 0.9 }
+      },
+      "highlight": {
+        "select": "#ffce54",
+        "move": "#8fd9a8",
+        "capture": "#e8695f",
+        "check": "#ff5252",
+        "last": "#e0a53a"
+      },
+      "lighting": {
+        "hemi": { "sky": "#c9b48f", "ground": "#2b1d12", "intensity": 0.55 },
+        "key": { "color": "#fff3dd", "intensity": 2.6, "position": [6, 11, 7] },
+        "fill": { "color": "#9fb7d8", "intensity": 0.5, "position": [-7, 5, -5] },
+        "envIntensity": 0.85,
+        "exposure": 1.05
+      }
+    },
+    {
+      "id": "marble",
+      "name": "Marble",
+      "summary": "Carrara and slate, lit like a museum case.",
+      "background": { "top": "#dfe3e8", "bottom": "#8d949d" },
+      "fog": { "color": "#b9bfc6", "near": 20, "far": 50 },
+      "board": {
+        "light": { "color": "#eceae4", "roughness": 0.18, "metalness": 0.02 },
+        "dark": { "color": "#3b4149", "roughness": 0.22, "metalness": 0.04 },
+        "frame": { "color": "#c7c2b8", "roughness": 0.25, "metalness": 0.08 },
+        "label": "#6b6f75"
+      },
+      "pieces": {
+        "w": { "color": "#f6f4ef", "roughness": 0.16, "metalness": 0.02, "envMapIntensity": 1.25 },
+        "b": { "color": "#32373d", "roughness": 0.2, "metalness": 0.05, "envMapIntensity": 1.15 }
+      },
+      "highlight": {
+        "select": "#3f8cff",
+        "move": "#39b982",
+        "capture": "#e2524a",
+        "check": "#ff3b30",
+        "last": "#2f7ae5"
+      },
+      "lighting": {
+        "hemi": { "sky": "#ffffff", "ground": "#6e747c", "intensity": 0.85 },
+        "key": { "color": "#ffffff", "intensity": 2.2, "position": [5, 12, 6] },
+        "fill": { "color": "#dce6f5", "intensity": 0.8, "position": [-6, 6, -6] },
+        "envIntensity": 1.3,
+        "exposure": 1.0
+      }
+    },
+    {
+      "id": "neon",
+      "name": "Neon",
+      "summary": "Black glass and lit edges, floating in the dark.",
+      "background": { "top": "#131a2b", "bottom": "#03040a" },
+      "fog": { "color": "#05060d", "near": 12, "far": 36 },
+      "board": {
+        "light": { "color": "#1d2740", "roughness": 0.12, "metalness": 0.55, "emissive": "#16304d", "emissiveIntensity": 0.35 },
+        "dark": { "color": "#080b14", "roughness": 0.14, "metalness": 0.6, "emissive": "#0a1424", "emissiveIntensity": 0.25 },
+        "frame": { "color": "#0a0e18", "roughness": 0.1, "metalness": 0.8, "emissive": "#00e5ff", "emissiveIntensity": 0.12 },
+        "label": "#4fe3ff"
+      },
+      "pieces": {
+        "w": { "color": "#dff7ff", "roughness": 0.1, "metalness": 0.25, "emissive": "#31d9ff", "emissiveIntensity": 0.55, "envMapIntensity": 1.4 },
+        "b": { "color": "#160d22", "roughness": 0.12, "metalness": 0.35, "emissive": "#c026d3", "emissiveIntensity": 0.5, "envMapIntensity": 1.4 }
+      },
+      "highlight": {
+        "select": "#ffe066",
+        "move": "#22f5b0",
+        "capture": "#ff4d6d",
+        "check": "#ff2d55",
+        "last": "#00e5ff"
+      },
+      "lighting": {
+        "hemi": { "sky": "#2a4a8a", "ground": "#05070f", "intensity": 0.5 },
+        "key": { "color": "#bfe9ff", "intensity": 2.0, "position": [5, 10, 6] },
+        "fill": { "color": "#ff6ad5", "intensity": 0.9, "position": [-6, 4, -6] },
+        "envIntensity": 0.9,
+        "exposure": 1.15
+      }
+    }
+  ]
+}
