@@ -55,6 +55,7 @@ export class Hud {
       moves: $('moves'),
       captured: $('captured'),
       panelToggle: $('panel-toggle'),
+      panelTitle: $('panel-title'),
       menu: $('menu'),
 
       btnFlip: $('btn-flip'),
@@ -135,13 +136,15 @@ export class Hud {
     const kind = this.el.opponent.value;
     this.el.httpConfig.hidden = kind !== 'http';
     this.el.cliConfig.hidden = kind !== 'cli';
-    this.el.testConnection.hidden = kind !== 'http' && kind !== 'cli';
+    this.el.testConnection.hidden = kind === 'human';
     this.el.difficulty.closest('.field').hidden = kind === 'human';
 
     const hints = {
-      builtin: 'Plays instantly, needs nothing set up. A sparring partner, not a strong engine.',
-      http: 'Any OpenAI-compatible endpoint. Runs on your machine or anywhere you can reach.',
-      cli: 'A program on this machine. The gateway runs it and reads its answer.',
+      memory: 'Not an AI. It plays a memorised opening book, then falls back to taking '
+        + 'whatever is worth most. No search, no thinking, no setup.',
+      http: 'An AI reached over HTTP. Your own machine or anywhere you can reach it.',
+      cli: 'An AI you run from a terminal. A fresh process each move, so it sees the '
+        + 'position and nothing else.',
       human: 'Both sides played on this board. Use the flip button to turn it around.',
     };
     this.el.opponentHint.textContent = hints[kind] || '';
@@ -213,6 +216,11 @@ export class Hud {
 
   setThinking(on) {
     this.el.thinking.hidden = !on;
+  }
+
+  /** Name the opening while memory is still following a line it knows. */
+  setOpening(name) {
+    this.el.panelTitle.textContent = name ? `Moves · ${name}` : 'Moves';
   }
 
   /* ---------------------------------------------------------- move lists */

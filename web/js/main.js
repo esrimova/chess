@@ -261,9 +261,11 @@ class App {
       return settings.side === 'b' ? { b: human, w: second } : { w: human, b: second };
     }
 
-    const kinds = { builtin: 'builtin', http: 'http', cli: 'cli' };
-    const names = { builtin: 'Built-in', http: 'The endpoint', cli: 'The command' };
-    const kind = kinds[settings.opponent] || 'builtin';
+    // 'builtin' is the name memory shipped under first; a saved setting from
+    // then still selects it.
+    const kinds = { memory: 'memory', builtin: 'memory', http: 'http', cli: 'cli' };
+    const names = { memory: 'Memory', http: 'The AI endpoint', cli: 'The AI CLI' };
+    const kind = kinds[settings.opponent] || 'memory';
 
     const opponent = new RemoteEngine({
       kind,
@@ -281,6 +283,11 @@ class App {
     const health = await probeOpponents({ http: settings.http, cli: settings.cli });
     if (!health) {
       this.hud.setSetupStatus('The gateway did not answer. Is server.py running?', 'bad');
+      return;
+    }
+    if (settings.opponent === 'memory') {
+      const positions = health.memory ? health.memory.positions : 0;
+      this.hud.setSetupStatus(`Memory holds ${positions} book positions`, 'ok');
       return;
     }
     if (settings.opponent === 'http') {
@@ -325,6 +332,7 @@ class App {
     this.setupPosition();
     this.hud.renderMoves([]);
     this.hud.renderCaptured([]);
+    this.hud.setOpening(null);
 
     this.engines = this.buildEngines(settings);
     this.humanColor = settings.opponent === 'human' ? null : settings.side;
@@ -427,6 +435,13 @@ class App {
       this.busy = false;
 
       this.lastMove = move;
+      // Memory reports the line it is following once the move identifies one.
+      if (!engine.isHuman && engine.lastDetail && engine.lastDetail.opening) {
+        this.hud.setOpening(engine.lastDetail.opening);
+      } else if (!engine.isHuman && engine.lastDetail && engine.lastDetail.source
+                 && engine.lastDetail.source !== 'book') {
+        this.hud.setOpening(null);
+      }
       this.hud.renderMoves(this.game.history());
       this.hud.renderCaptured(this.game.history());
       this.showLastMove();

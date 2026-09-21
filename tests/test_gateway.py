@@ -237,11 +237,12 @@ def run_tests(base):
     # -------------------------------------------------------------- health
     section("gateway — /health")
 
-    @test("health reports the built-in opponent as always available")
+    @test("health reports memory, with how much it remembers")
     def _():
         status, data = post(base + "/health", {"config": {}})
         assert status == 200, status
-        assert data["builtin"] is True
+        assert data["memory"]["ok"] is True, data
+        assert data["memory"]["positions"] > 100, data
         assert "http" in data and "cli" in data
 
     @test("health reports an unreachable endpoint honestly, without failing")
@@ -273,43 +274,103 @@ def run_tests(base):
         assert data["cli"]["error"], "a missing command reported no reason"
 
     # ------------------------------------------------------------- builtin
-    section("gateway — the built-in opponent")
+    section("gateway — pre-installed memory")
 
     @test("it returns a move from the list it was given, at every difficulty")
     def _():
         for difficulty in ("easy", "medium", "hard"):
             for _ in range(15):
                 status, data = post(base + "/move", {
-                    "kind": "builtin", "fen": OPENING_FEN,
+                    "kind": "memory", "fen": OPENING_FEN,
                     "legal": OPENING_MOVES, "difficulty": difficulty,
                 })
                 assert status == 200, (difficulty, status, data)
                 assert data["move"] in LEGAL_UCI, (difficulty, data)
 
-    @test("on hard it prefers the capture it was shown")
+    @test("the old name for it still works, so a saved setting is not broken")
     def _():
+        for kind in ("builtin", "random"):
+            status, data = post(base + "/move", {
+                "kind": kind, "fen": OPENING_FEN, "legal": OPENING_MOVES,
+            })
+            assert status == 200, (kind, data)
+            assert data["move"] in LEGAL_UCI, (kind, data)
+
+    @test("it plays from the book, and says so")
+    def _():
+        # A real opening position: memory should recognise it, not guess.
+        status, data = post(base + "/move", {
+            "kind": "memory", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+        })
+        assert status == 200, data
+        assert data["detail"]["source"] == "book", data
+        assert data["move"] in {"e2e4", "d2d4", "c2c4", "g1f3"}, data
+
+    @test("deep in a line it names the opening it is following")
+    def _():
+        najdorf = "rnbqkb1r/1p2pppp/p2p1n2/8/3NP3/2N5/PPP2PPP/R1BQKB1R w KQkq - 0 6"
         moves = [
-            {"uci": "a2a3", "san": "a3", "captured": None, "promotion": None, "check": False},
-            {"uci": "b2b3", "san": "b3", "captured": None, "promotion": None, "check": False},
-            {"uci": "d1h5", "san": "Qxh5", "captured": "q", "promotion": None, "check": False},
+            {"uci": "c1e3", "san": "Be3", "captured": None, "promotion": None, "check": False},
+            {"uci": "f1e2", "san": "Be2", "captured": None, "promotion": None, "check": False},
+        ]
+        status, data = post(base + "/move", {"kind": "memory", "fen": najdorf, "legal": moves})
+        assert status == 200, data
+        assert data["detail"].get("opening") == "Sicilian, Najdorf", data
+
+    @test("the opening move is not given a name, because it identifies nothing")
+    def _():
+        # Every line in the book starts from here, so naming one would be a lie.
+        status, data = post(base + "/move", {
+            "kind": "memory", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+        })
+        assert not data["detail"].get("opening"), data
+
+    @test("a position is recognised however it was transposed into")
+    def _():
+        # Same position, absurd move counters: the book key ignores them.
+        odd = OPENING_FEN.replace(" 0 1", " 7 99")
+        status, data = post(base + "/move", {
+            "kind": "memory", "fen": odd, "legal": OPENING_MOVES,
+        })
+        assert data["detail"]["source"] == "book", data
+
+    @test("out of book it falls back and says that too")
+    def _():
+        unknown = "8/5k2/8/8/8/8/5K2/R7 w - - 0 1"
+        moves = [
+            {"uci": "a1a2", "san": "Ra2", "captured": None, "promotion": None, "check": False},
+            {"uci": "a1b1", "san": "Rb1", "captured": None, "promotion": None, "check": False},
+        ]
+        status, data = post(base + "/move", {"kind": "memory", "fen": unknown, "legal": moves})
+        assert status == 200, data
+        assert data["detail"]["source"] != "book", data
+        assert "out of book" in data["detail"]["note"], data
+
+    @test("out of book, on hard, it prefers the capture it was shown")
+    def _():
+        unknown = "8/5k2/8/8/3q4/8/5K2/3Q4 w - - 0 1"
+        moves = [
+            {"uci": "f2f1", "san": "Kf1", "captured": None, "promotion": None, "check": False},
+            {"uci": "f2f3", "san": "Kf3", "captured": None, "promotion": None, "check": False},
+            {"uci": "d1d4", "san": "Qxd4", "captured": "q", "promotion": None, "check": False},
         ]
         for _ in range(12):
             _status, data = post(base + "/move", {
-                "kind": "builtin", "fen": OPENING_FEN, "legal": moves, "difficulty": "hard",
+                "kind": "memory", "fen": unknown, "legal": moves, "difficulty": "hard",
             })
-            assert data["move"] == "d1h5", data
+            assert data["move"] == "d1d4", data
 
     @test("plain strings work as a move list as well as objects")
     def _():
         status, data = post(base + "/move", {
-            "kind": "builtin", "fen": OPENING_FEN, "legal": ["e2e4", "d2d4"],
+            "kind": "memory", "fen": OPENING_FEN, "legal": ["e2e4", "d2d4"],
         })
         assert status == 200, data
         assert data["move"] in {"e2e4", "d2d4"}, data
 
     @test("a position with no legal moves is refused, not guessed at")
     def _():
-        status, data = post(base + "/move", {"kind": "builtin", "fen": OPENING_FEN, "legal": []})
+        status, data = post(base + "/move", {"kind": "memory", "fen": OPENING_FEN, "legal": []})
         assert status == 400, status
         assert "error" in data
 

@@ -13,6 +13,8 @@
   --glass-line: rgba(255, 255, 255, 0.10);
   --accent: #e3a84c;
   --accent-ink: #1a1207;
+  --field: #f2efe9;
+  --field-ink: #000000;
   --danger: #e2574c;
   --ok: #57b97f;
   --radius: 14px;
@@ -144,7 +146,7 @@ input, select, button {
   color: inherit;
 }
 
-input[type="text"], input[type="url"], input[type="password"], select {
+input[type="text"], input[type="url"], input[type="password"] {
   width: 100%;
   padding: 11px 12px;
   background: rgba(255, 255, 255, 0.05);
@@ -153,10 +155,33 @@ input[type="text"], input[type="url"], input[type="password"], select {
   outline: none;
   transition: border-color 0.15s, background 0.15s;
 }
+
+/* Dropdowns read as black on a light field. The native option list is drawn by
+   the operating system and takes its colours from the control, so a dark
+   control gives an unreadable list on several platforms; a light one is
+   legible everywhere and on every theme. */
+select {
+  width: 100%;
+  padding: 11px 12px;
+  background: var(--field);
+  color: var(--field-ink);
+  border: 1px solid var(--glass-line);
+  border-radius: 10px;
+  outline: none;
+  color-scheme: light;
+  transition: border-color 0.15s, background 0.15s;
+}
+select option,
+select optgroup {
+  background: #ffffff;
+  color: var(--field-ink);
+}
+select optgroup { font-weight: 600; }
+
 input:focus, select:focus {
   border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.08);
 }
+input:focus { background: rgba(255, 255, 255, 0.08); }
 
 .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .row > * { min-width: 0; }
@@ -283,8 +308,8 @@ button.icon {
   width: 148px;
   height: 42px;
   padding: 0 10px;
-  background: var(--glass);
-  backdrop-filter: blur(10px);
+  background: var(--field);
+  color: var(--field-ink);
   border-radius: 12px;
   font-size: 13px;
 }

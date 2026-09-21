@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
 <meta name="color-scheme" content="dark">
 <meta name="theme-color" content="#0b0907">
-<title>Chess3D</title>
+<title>AI Chess3D</title>
 <link rel="stylesheet" href="./css/style.css">
 </head>
 <body>
@@ -28,15 +28,17 @@
 <!-- Setup -->
 <div id="setup" class="screen" hidden>
   <div class="sheet">
-    <h1>Chess<span>3D</span></h1>
+    <h1>AI Chess<span>3D</span></h1>
     <p class="sub">Pick an opponent, then play. Everything runs from this machine.</p>
 
     <section class="field">
       <label for="opponent">Opponent</label>
       <select id="opponent">
-        <option value="builtin">Built-in — no setup needed</option>
-        <option value="http">AI endpoint — OpenAI-compatible</option>
-        <option value="cli">Command line program</option>
+        <option value="memory">Pre-installed memory</option>
+        <optgroup label="AI">
+          <option value="cli">AI CLI</option>
+          <option value="http">AI Endpoint</option>
+        </optgroup>
         <option value="human">Two players, one board</option>
       </select>
       <p class="hint" id="opponent-hint"></p>
@@ -57,16 +59,18 @@
           <input id="http-key" type="password" spellcheck="false" placeholder="not needed locally">
         </div>
       </div>
-      <p class="hint">Anything that speaks <code>/v1/chat/completions</code>: LM Studio,
-        Ollama, llama.cpp, vLLM, or a hosted API.</p>
+      <p class="hint">An AI reached over HTTP — anything that speaks
+        <code>/v1/chat/completions</code>: LM Studio, Ollama, llama.cpp, vLLM,
+        or a hosted API.</p>
     </section>
 
     <section class="field opponent-config" id="cli-config" hidden>
       <label for="cli-command">Command</label>
       <input id="cli-command" type="text" spellcheck="false" autocapitalize="off"
-             placeholder="ollama run qwen2.5">
-      <p class="hint">Run with the position on stdin. <code>{fen}</code>,
-        <code>{legal}</code> and <code>{difficulty}</code> are substituted if you use them.</p>
+             placeholder="claude -p">
+      <p class="hint">An AI you run from a terminal. The gateway starts it, puts the
+        position on stdin, and reads the move it prints. <code>{fen}</code>,
+        <code>{legal}</code> and <code>{difficulty}</code> are substituted if used.</p>
     </section>
 
     <div class="row">
