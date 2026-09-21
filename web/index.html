@@ -129,6 +129,8 @@
   <button id="btn-spin" class="icon" type="button" title="Spin the board" aria-label="Spin the board">⟳</button>
   <button id="btn-reset-view" class="icon" type="button" title="Reset view" aria-label="Reset view">⌖</button>
   <button id="btn-undo" class="icon" type="button" title="Take back" aria-label="Take back">↶</button>
+  <button id="btn-camera-help" class="icon" type="button"
+          title="Camera instructions" aria-label="Camera instructions">?</button>
   <select id="theme-live" title="Theme" aria-label="Theme"></select>
 </div>
 
@@ -150,6 +152,18 @@
       <button data-piece="r" type="button">Rook</button>
       <button data-piece="b" type="button">Bishop</button>
       <button data-piece="n" type="button">Knight</button>
+    </div>
+  </div>
+</div>
+
+<!-- Camera instructions -->
+<div id="camera-help" class="screen dim" hidden>
+  <div class="sheet narrow">
+    <h2>Moving the camera</h2>
+    <dl class="keys" id="camera-help-keys"></dl>
+    <p class="hint" id="camera-help-note"></p>
+    <div class="actions center">
+      <button id="camera-help-close" class="primary" type="button">Got it</button>
     </div>
   </div>
 </div>

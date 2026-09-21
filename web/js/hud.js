@@ -65,6 +65,11 @@ export class Hud {
       btnResetView: $('btn-reset-view'),
       btnUndo: $('btn-undo'),
       btnNew: $('btn-new'),
+      btnCameraHelp: $('btn-camera-help'),
+      cameraHelp: $('camera-help'),
+      cameraHelpKeys: $('camera-help-keys'),
+      cameraHelpNote: $('camera-help-note'),
+      cameraHelpClose: $('camera-help-close'),
       aiStatus: $('ai-status'),
       aiStatusText: $('ai-status-text'),
       gameoverNew: $('gameover-new'),
@@ -364,6 +369,58 @@ export class Hud {
   hideToast() {
     clearTimeout(this._toastTimer);
     this.el.toast.hidden = true;
+  }
+
+  /**
+   * The camera instructions.
+   *
+   * Written from whichever set of gestures this device actually has, rather
+   * than listing both and asking the reader to work out which half applies.
+   */
+  showCameraHelp(touch) {
+    const rows = touch
+      ? [
+          [['Two fingers'], 'Turn the board, a full circle and round again'],
+          [['Three fingers'], 'Slide the board across the view'],
+          [['Pinch'], 'Zoom in and out'],
+          [['One finger'], 'Belongs to the pieces — tap one, then tap its square'],
+        ]
+      : [
+          [['Ctrl', 'drag'], 'Turn the board, a full circle and round again'],
+          [['Shift', 'drag'], 'Slide the board across the view'],
+          [['Scroll'], 'Zoom in and out'],
+          [['Click'], 'Belongs to the pieces — click one, then click its square'],
+        ];
+
+    const list = this.el.cameraHelpKeys;
+    list.innerHTML = '';
+    for (const [keys, meaning] of rows) {
+      const dt = document.createElement('dt');
+      keys.forEach((key, i) => {
+        if (i > 0) {
+          const plus = document.createElement('span');
+          plus.className = 'plus';
+          plus.textContent = '+';
+          dt.appendChild(plus);
+        }
+        const kbd = document.createElement('kbd');
+        kbd.textContent = key;
+        dt.appendChild(kbd);
+      });
+      const dd = document.createElement('dd');
+      dd.textContent = meaning;
+      list.append(dt, dd);
+    }
+
+    this.el.cameraHelpNote.textContent =
+      'The buttons flip the board to the other side, spin it, and put the view '
+      + 'back where it started.';
+
+    this.el.cameraHelp.hidden = false;
+  }
+
+  hideCameraHelp() {
+    this.el.cameraHelp.hidden = true;
   }
 
   /** The control hint: what the gestures do. */

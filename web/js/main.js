@@ -194,6 +194,17 @@ class App {
     hud.el.btnUndo.addEventListener('click', () => this.undo());
     hud.el.btnNew.addEventListener('click', () => this.confirmNewGame());
 
+    const coarse = () => matchMedia('(pointer: coarse)').matches;
+    hud.el.btnCameraHelp.addEventListener('click', () => hud.showCameraHelp(coarse()));
+    hud.el.cameraHelpClose.addEventListener('click', () => hud.hideCameraHelp());
+    // Clicking the darkened background closes it, as a dialog should.
+    hud.el.cameraHelp.addEventListener('pointerdown', (event) => {
+      if (event.target === hud.el.cameraHelp) hud.hideCameraHelp();
+    });
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !hud.el.cameraHelp.hidden) hud.hideCameraHelp();
+    });
+
     hud.el.cancelThink.addEventListener('click', () => {
       if (this.abort) this.abort.abort();
     });
