@@ -986,6 +986,21 @@ class Handler(SimpleHTTPRequestHandler):
         self._send_json(payload, status)
 
 
+def already_ours(url, timeout=2):
+    """Is the thing holding this port our own gateway, or a stranger?
+
+    Worth asking, because "the port is busy" and "the game you are trying to
+    start is already open" deserve completely different answers, and the second
+    is the common one.
+    """
+    try:
+        request = urllib.request.Request(url + "/relay?format=json")
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read(65536)).get("game") == "chess"
+    except Exception:  # noqa: BLE001 - anything at all means "not ours"
+        return False
+
+
 def local_addresses(port):
     out = [f"http://127.0.0.1:{port}"]
     try:
@@ -1016,11 +1031,23 @@ def main():
     try:
         server = Gateway((args.host, args.port), Handler)
     except OSError as exc:
+        # Before complaining, find out what is actually there. The commonest
+        # cause by far is this program already running — in which case the
+        # player wants to play, not to read about a port.
+        existing = f"http://127.0.0.1:{args.port}"
+        if already_ours(existing):
+            print("AI Chess3D is already running.")
+            print(f"  {existing}")
+            if not args.no_browser:
+                print("  opening it")
+                webbrowser.open(existing)
+            else:
+                print("  (close that window first if you meant to restart it)")
+            return 0
+
         print(f"Could not listen on port {args.port}: {exc}", file=sys.stderr)
-        print("Something is already using it — most likely AI Chess3D is "
-              "already running.", file=sys.stderr)
-        print(f"Close that window, or start this one with --port "
-              f"{args.port + 1}.", file=sys.stderr)
+        print("Something else on this machine is using that port.", file=sys.stderr)
+        print(f"Start this one on another: --port {args.port + 1}", file=sys.stderr)
         return 1
     SERVED_PORT[0] = args.port
     addresses = local_addresses(args.port)

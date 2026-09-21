@@ -923,6 +923,40 @@ def run_tests(base):
             except urllib.error.HTTPError as exc:
                 assert exc.code == 400, (body, exc.code)
 
+    @test("a second instance recognises itself instead of failing")
+    def _():
+        # The commonest reason the port is busy is that the game is already
+        # open, and the player wants to play, not to read about a port.
+        port = int(base.rsplit(":", 1)[1])
+        result = subprocess.run(
+            [sys.executable, os.path.join(ROOT, "server.py"),
+             "--port", str(port), "--host", "127.0.0.1", "--no-browser"],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "CHESS3D_QUIET": "1"},
+        )
+        assert result.returncode == 0, (result.returncode, result.stderr[:300])
+        assert "already running" in result.stdout, result.stdout[:300]
+
+    @test("a port held by something else is reported honestly")
+    def _():
+        # Not our gateway, so it is a real collision and must say so.
+        blocker = socket.socket()
+        blocker.bind(("127.0.0.1", 0))
+        blocker.listen(1)
+        port = blocker.getsockname()[1]
+        try:
+            result = subprocess.run(
+                [sys.executable, os.path.join(ROOT, "server.py"),
+                 "--port", str(port), "--host", "127.0.0.1", "--no-browser"],
+                capture_output=True, text=True, timeout=60,
+                env={**os.environ, "CHESS3D_QUIET": "1"},
+            )
+            assert result.returncode == 1, (result.returncode, result.stdout[:200])
+            assert "already running" not in result.stdout, result.stdout[:200]
+            assert "Something else" in result.stderr, result.stderr[:300]
+        finally:
+            blocker.close()
+
     @test("the static server does not serve anything outside web/")
     def _():
         for path in ("/../server.py", "/..%2fserver.py", "/%2e%2e/server.py",

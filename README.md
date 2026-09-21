@@ -277,7 +277,9 @@ careful with, so:
 - **Only one gateway may hold the port.** On Windows the usual `SO_REUSEADDR`
   lets a second process bind a port that is already listening and quietly take
   half the traffic; this sets `SO_EXCLUSIVEADDRUSE` instead, so a second
-  instance says the port is busy rather than splitting the game in two.
+  instance says the port is busy rather than splitting the game in two. Start
+  the launcher twice and the second one notices the first is already serving,
+  opens the board, and exits quietly.
 
 Anyone who can reach the port can still join a relay game or watch its status —
 that is what makes "give your AI this address" work. On a network you do not
@@ -303,7 +305,7 @@ away, and it is what lets the same URL work from a phone on the same network.
 python run-tests.py
 ```
 
-Ninety-four tests in three suites, nothing mocked: the rules layer is checked
+Ninety-six tests in three suites, nothing mocked: the rules layer is checked
 against perft counts, the piece set against its own geometry, and the gateway by
 starting it as a real process and reaching it over real HTTP. The last gateway
 test plays a move against whatever model is listening on `127.0.0.1:1234`, and

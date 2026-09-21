@@ -35,7 +35,7 @@ failed approach is information.
 
 ```bash
 python server.py        # then open http://127.0.0.1:8770
-python run-tests.py     # 94 tests: logic, geometry, gateway
+python run-tests.py     # 96 tests: logic, geometry, gateway
 ```
 
 ### Architectural rule that governs every item
@@ -726,6 +726,17 @@ captured pieces, undo, new game, theme picker, camera buttons, camera instructio
 > double-clicks the launcher twice. Now `SO_EXCLUSIVEADDRUSE` on Windows, and a
 > second instance says so instead of splitting the game.
 >
+> **Log (15.0) — refusing the port was right; the message was not.** Making a
+> second instance fail closed the hijack, but it turned the commonest case into
+> an error: the player double-clicks the launcher, the game is already open,
+> and they get a socket message in two languages and a wall of text about
+> ports. Before complaining, the gateway now asks whoever holds the port
+> whether they are it — a request to `/relay?format=json`, which only this
+> application answers — and if so says "AI Chess3D is already running", opens
+> the board, and exits successfully. A stranger on the port still gets the
+> honest error. Reported by the user, who hit it against a server this session
+> had left behind.
+>
 > **Log (15.0) — what was already sound.** Path traversal: `SimpleHTTPRequestHandler`
 > refused all six shapes tried, including encoded and mixed-separator ones. The
 > DOM is built with `textContent` and nodes throughout, so the one `innerHTML`
@@ -778,8 +789,8 @@ normalise six independently generated meshes to one consistent piece height.
 |---|---|---|
 | `tests/logic.test.mjs` | 29 | coordinate contract, rules, perft, a full game |
 | `tests/geometry.test.mjs` | 11 | the generated piece set |
-| `tests/test_gateway.py` | 54 | serving, health, all three opponents, reply parsing |
-| **Total** | **94** | all passing |
+| `tests/test_gateway.py` | 56 | serving, health, all three opponents, reply parsing |
+| **Total** | **96** | all passing |
 
 The gateway suite's last test plays against whatever real model is listening on
 `127.0.0.1:1234` and skips with a notice when nothing is. It ran for real against
