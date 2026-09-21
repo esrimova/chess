@@ -35,7 +35,7 @@ failed approach is information.
 
 ```bash
 python server.py        # then open http://127.0.0.1:8770
-python run-tests.py     # 86 tests: logic, geometry, gateway
+python run-tests.py     # 94 tests: logic, geometry, gateway
 ```
 
 ### Architectural rule that governs every item
@@ -668,7 +668,59 @@ captured pieces, undo, new game, theme picker, camera buttons, camera instructio
 
 ---
 
-## 15. Repository
+## 15. Security
+
+**15.0 Hardening** — reviewed by attacking the running gateway, not by reading it.
+- [x] Implementation
+- [x] Backend testing — eight tests, each of which fails if the hole is reopened:
+  a cross-origin caller refused on `/move`, `/health` and `/relay/cancel`; the
+  page's own origin still served; the endpoint opponent unreachable without the
+  page's header, with a decoy asserting it was never fetched; non-HTTP schemes
+  refused; cloud metadata addresses refused; an oversized body answered 413
+  rather than read; a non-object JSON body refused; and the static server
+  refusing six traversal shapes.
+- [x] Frontend testing — the page plays normally with the header in place.
+
+> **Log (15.0) — SSRF, and it returned what it found.** `/move` with
+> `kind: "http"` takes the endpoint URL from the request, so anything that could
+> reach the port could make the gateway fetch any address and read the reply. A
+> decoy server confirmed it: the gateway fetched `/v1/models` and
+> `/v1/chat/completions` on a host it was pointed at, and handed back the body
+> verbatim. Closed by requiring the page's own header on that route, restricting
+> schemes to http and https, and refusing cloud metadata addresses.
+>
+> **Log (15.0) — CSRF made that reachable from any website.** A cross-origin
+> POST of `Content-Type: text/plain` triggers no preflight, so a page the player
+> visited could send it. Confirmed with an `Origin: https://evil.example`
+> request that was accepted. Now any request carrying a foreign `Origin` is
+> refused. Non-browser clients do not send `Origin`, so the relay contract still
+> works for curl, agents, and anything written against the API.
+>
+> **Log (15.0) — two gateways could hold one port.** Found while the fixes
+> appeared not to apply: `HTTPServer` sets `SO_REUSEADDR`, which on Unix only
+> shortens TIME_WAIT but on Windows lets a second process bind a port that is
+> already being listened on. Several servers had accumulated across the session
+> and requests were being split between them, which is why a fix that was
+> plainly in the file did nothing — and almost certainly why a relay test
+> flaked earlier. It is also a hijack primitive, and what happens when anyone
+> double-clicks the launcher twice. Now `SO_EXCLUSIVEADDRUSE` on Windows, and a
+> second instance says so instead of splitting the game.
+>
+> **Log (15.0) — what was already sound.** Path traversal: `SimpleHTTPRequestHandler`
+> refused all six shapes tried, including encoded and mixed-separator ones. The
+> DOM is built with `textContent` and nodes throughout, so the one `innerHTML`
+> that interpolated an error message was the only injection sink, and it is gone;
+> the remaining uses only clear elements.
+>
+> **Log (15.0) — what is deliberately still open.** Anyone who can reach the
+> port can join a relay game or read its status. That is the feature: "give your
+> AI this address" cannot work if the address requires a secret the AI has not
+> been given. The honest mitigation is `--host 127.0.0.1`, and the startup
+> banner now says so.
+
+---
+
+## 16. Repository
 
 **15.1 README** — what it is, how to run it, how to plug in an endpoint or a CLI, how to
 add a theme, how to add an opponent.
@@ -683,7 +735,7 @@ add a theme, how to add an opponent.
 
 ---
 
-## 16. Generated piece sets — deferred, not built
+## 17. Generated piece sets — deferred, not built
 
 Not part of this build, by agreement: the procedural set ships as the default so a
 fresh clone plays with no assets and no generation.
@@ -706,8 +758,8 @@ normalise six independently generated meshes to one consistent piece height.
 |---|---|---|
 | `tests/logic.test.mjs` | 29 | coordinate contract, rules, perft, a full game |
 | `tests/geometry.test.mjs` | 11 | the generated piece set |
-| `tests/test_gateway.py` | 46 | serving, health, all three opponents, reply parsing |
-| **Total** | **86** | all passing |
+| `tests/test_gateway.py` | 54 | serving, health, all three opponents, reply parsing |
+| **Total** | **94** | all passing |
 
 The gateway suite's last test plays against whatever real model is listening on
 `127.0.0.1:1234` and skips with a notice when nothing is. It ran for real against

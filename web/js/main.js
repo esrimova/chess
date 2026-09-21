@@ -819,8 +819,17 @@ const app = new App();
 app.boot().catch((error) => {
   console.error(error);
   const loader = document.getElementById('loader');
-  if (loader) {
-    loader.innerHTML = `<div class="sheet narrow"><h2>Could not start</h2>
-      <p class="hint">${String(error && error.message ? error.message : error)}</p></div>`;
-  }
+  if (!loader) return;
+  // Built as nodes, not markup: whatever ends up in an error message should
+  // never be able to become part of the page.
+  loader.textContent = '';
+  const sheet = document.createElement('div');
+  sheet.className = 'sheet narrow';
+  const heading = document.createElement('h2');
+  heading.textContent = 'Could not start';
+  const detail = document.createElement('p');
+  detail.className = 'hint';
+  detail.textContent = String(error && error.message ? error.message : error);
+  sheet.append(heading, detail);
+  loader.appendChild(sheet);
 });

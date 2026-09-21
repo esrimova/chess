@@ -80,17 +80,22 @@ def get(url, timeout=10):
         return response.status, response.read(), dict(response.headers)
 
 
-def post(url, payload, timeout=30):
+def post(url, payload, timeout=30, headers=None):
     request = urllib.request.Request(
         url,
         data=json.dumps(payload).encode("utf-8"),
-        headers={"Content-Type": "application/json"},
+        headers={"Content-Type": "application/json", "X-Chess3D": "1",
+                 **(headers or {})},
     )
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
             return response.status, json.loads(response.read())
     except urllib.error.HTTPError as exc:
-        return exc.code, json.loads(exc.read())
+        raw = exc.read()
+        try:
+            return exc.code, json.loads(raw)
+        except ValueError:
+            return exc.code, {"error": raw[:200].decode("utf-8", "replace")}
 
 
 # ------------------------------------------------- a real model-shaped server
@@ -383,7 +388,7 @@ def run_tests(base):
     def _():
         request = urllib.request.Request(
             base + "/move", data=b"{not json",
-            headers={"Content-Type": "application/json"},
+            headers={"Content-Type": "application/json", "X-Chess3D": "1"},
         )
         try:
             urllib.request.urlopen(request, timeout=10)
@@ -771,6 +776,152 @@ def run_tests(base):
             played.append(data.get("move"))
         thread.join(timeout=20)
         assert played == ["e2e4", "g1f3", "d2d4"], played
+
+    # ------------------------------------------------------------ security
+    section("gateway — security")
+
+    def post_raw(path, payload, headers=None, timeout=20):
+        """A request that does NOT speak for the page, unlike post()."""
+        request = urllib.request.Request(
+            base + path,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers or {"Content-Type": "application/json"},
+        )
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as resp:
+                return resp.status, json.loads(resp.read())
+        except urllib.error.HTTPError as exc:
+            raw = exc.read()
+            try:
+                return exc.code, json.loads(raw)
+            except ValueError:
+                return exc.code, {"raw": raw[:200].decode("utf-8", "replace")}
+
+    class Decoy(BaseHTTPRequestHandler):
+        """Stands in for something on the network that should not be fetched."""
+
+        hits = []
+
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            type(self).hits.append(self.path)
+            body = b'{"data":[{"id":"internal"}]}'
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):
+            type(self).hits.append(self.path)
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            body = b'{"error":{"message":"SECRET-BANNER"}}'
+            self.send_response(400)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+    def start_decoy():
+        Decoy.hits = []
+        port = free_port()
+        httpd = ThreadingHTTPServer(("127.0.0.1", port), Decoy)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        return httpd, "http://127.0.0.1:%d" % port
+
+    @test("a page on another site cannot drive the gateway")
+    def _():
+        # A cross-origin POST of text/plain needs no preflight, so without an
+        # Origin check any site the player visits could start games, cancel
+        # turns, and reach the endpoint opponent.
+        for path, payload in (("/move", {"kind": "memory", "fen": OPENING_FEN,
+                                         "legal": OPENING_MOVES}),
+                              ("/relay/cancel", {}),
+                              ("/health", {"config": {}})):
+            status, _data = post_raw(path, payload, headers={
+                "Content-Type": "text/plain",
+                "Origin": "https://evil.example",
+            })
+            assert status == 403, "%s accepted a cross-origin request (%s)" % (path, status)
+
+    @test("a page on this origin still works")
+    def _():
+        host = base.split("//", 1)[1]
+        status, data = post_raw("/move", {
+            "kind": "memory", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+        }, headers={"Content-Type": "application/json", "X-Chess3D": "1",
+                    "Origin": base})
+        assert status == 200, (status, data)
+        assert data.get("move"), data
+
+    @test("the endpoint opponent is not reachable without the page's header")
+    def _():
+        httpd, decoy = start_decoy()
+        try:
+            status, _data = post_raw("/move", {
+                "kind": "http", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+                "config": {"url": decoy, "timeout": 5},
+            }, headers={"Content-Type": "application/json"})
+            assert status == 403, status
+            assert Decoy.hits == [], "the gateway fetched the decoy anyway: %r" % (Decoy.hits,)
+        finally:
+            httpd.shutdown()
+
+    @test("only http and https endpoints are accepted")
+    def _():
+        for url in ("file:///C:/Windows/win.ini", "ftp://127.0.0.1/",
+                    "gopher://127.0.0.1/", "data:text/plain,hello"):
+            _status, data = post(base + "/move", {
+                "kind": "http", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+                "config": {"url": url, "timeout": 4},
+            })
+            assert "error" in data, (url, data)
+            assert "http://" in data["error"], "%s was not refused for its scheme: %r" % (url, data)
+
+    @test("cloud metadata services are refused")
+    def _():
+        for url in ("http://169.254.169.254/latest/meta-data/",
+                    "http://metadata.google.internal/"):
+            _status, data = post(base + "/move", {
+                "kind": "http", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+                "config": {"url": url, "timeout": 4},
+            })
+            assert "error" in data, (url, data)
+            assert "chess opponent lives" in data["error"], (url, data)
+
+    @test("an oversized request body is refused rather than read")
+    def _():
+        payload = {"kind": "memory", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+                   "pad": "A" * (2 * 1024 * 1024)}
+        status, _data = post(base + "/move", payload)
+        assert status == 413, status
+
+    @test("a JSON body that is not an object is refused")
+    def _():
+        for body in (b"[1,2,3]", b'"hello"', b"42", b"null"):
+            request = urllib.request.Request(
+                base + "/move", data=body,
+                headers={"Content-Type": "application/json", "X-Chess3D": "1"})
+            try:
+                urllib.request.urlopen(request, timeout=10)
+                raise AssertionError("%r was accepted" % body)
+            except urllib.error.HTTPError as exc:
+                assert exc.code == 400, (body, exc.code)
+
+    @test("the static server does not serve anything outside web/")
+    def _():
+        for path in ("/../server.py", "/..%2fserver.py", "/%2e%2e/server.py",
+                     "/....//server.py", "/../../../../Windows/win.ini",
+                     "/..\\server.py"):
+            try:
+                with urllib.request.urlopen(base + path, timeout=10) as resp:
+                    body = resp.read()
+                assert b"gateway" not in body and b"[fonts]" not in body, (
+                    "%s served something from outside web/" % path)
+            except urllib.error.HTTPError as exc:
+                assert exc.code in (400, 403, 404), (path, exc.code)
 
     # ------------------------------------------------------- reply parsing
     section("gateway — reading a move out of a reply")

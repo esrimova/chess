@@ -227,6 +227,39 @@ swappable instead of a rewrite.
 
 ---
 
+## Security
+
+The gateway is a local program, but it listens on the network so a phone can
+reach it, and it will fetch a URL you give it. Both of those are worth being
+careful with, so:
+
+- **Requests from another website are refused.** A cross-origin POST of
+  `Content-Type: text/plain` needs no preflight, so without this any page you
+  happened to visit could drive the gateway — start games, cancel turns, and
+  through the endpoint opponent make your machine fetch arbitrary URLs and read
+  back what they said. Browsers attach `Origin` to such a request and it is
+  rejected; ordinary clients like curl or an agent never send one, so the relay
+  contract is unaffected.
+- **`/move` and `/health` additionally require a header** the page sends and a
+  cross-origin caller cannot set without a preflight this server does not
+  answer. `/move` is the route that can be told to fetch a URL, so it is locked
+  to the game's own page.
+- **Endpoints must be `http://` or `https://`**, and cloud instance-metadata
+  addresses are refused outright — no chess opponent is hosted on
+  `169.254.169.254`.
+- **Request bodies are capped** at 1 MiB in and 8 MiB back from a model, so a
+  request cannot make the gateway allocate until it falls over.
+- **Only one gateway may hold the port.** On Windows the usual `SO_REUSEADDR`
+  lets a second process bind a port that is already listening and quietly take
+  half the traffic; this sets `SO_EXCLUSIVEADDRUSE` instead, so a second
+  instance says the port is busy rather than splitting the game in two.
+
+Anyone who can reach the port can still join a relay game or watch its status —
+that is what makes "give your AI this address" work. On a network you do not
+trust, run it with `--host 127.0.0.1`.
+
+---
+
 ## Why there is a server at all
 
 Because the page and the model calls have to share an origin. A page opened
@@ -245,7 +278,7 @@ away, and it is what lets the same URL work from a phone on the same network.
 python run-tests.py
 ```
 
-Eighty-six tests in three suites, nothing mocked: the rules layer is checked
+Ninety-four tests in three suites, nothing mocked: the rules layer is checked
 against perft counts, the piece set against its own geometry, and the gateway by
 starting it as a real process and reaching it over real HTTP. The last gateway
 test plays a move against whatever model is listening on `127.0.0.1:1234`, and

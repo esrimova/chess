@@ -77,7 +77,10 @@ export class RemoteEngine {
   async getMove(fen, legal, signal) {
     const res = await fetch(this.endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // A custom header cannot be set cross-origin without a preflight, and
+      // the gateway answers none — so this marks the request as coming from
+      // the game's own page, and nobody else's.
+      headers: { 'Content-Type': 'application/json', 'X-Chess3D': '1' },
       body: JSON.stringify({
         kind: this.kind,
         fen,
@@ -124,7 +127,7 @@ export async function probeOpponents(config) {
   try {
     const res = await fetch('/health', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-Chess3D': '1' },
       body: JSON.stringify({ config: config || {} }),
     });
     if (!res.ok) return null;

@@ -43,6 +43,12 @@ DEFAULT_TIMEOUT = int(os.getenv("LLM_TIMEOUT", "90"))
 DEFAULT_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.2"))
 MAX_ATTEMPTS = 3
 
+# Nothing this application legitimately sends comes near these. They are here
+# so a request cannot make the gateway allocate until it falls over.
+MAX_REQUEST_BYTES = 1 << 20        # 1 MiB of JSON in
+MAX_ENDPOINT_BYTES = 8 << 20       # 8 MiB of model reply back
+MAX_DRAIN_BYTES = 8 << 20          # how much of an oversized body to read away
+
 PIECE_VALUE = {"p": 1, "n": 3, "b": 3, "r": 5, "q": 9, "k": 0}
 
 BOOK_PATH = os.path.join(ROOT, "openings.json")
@@ -243,13 +249,51 @@ DIFFICULTY_BRIEF = {
 }
 
 
+# Cloud instance-metadata services live here and hand out credentials to
+# anything that can make a plain HTTP request from inside the machine. No
+# chess opponent is ever hosted on them.
+BLOCKED_HOSTS = {
+    "169.254.169.254",
+    "metadata.google.internal",
+    "metadata.goog",
+}
+
+
+def check_endpoint(url):
+    """Reject anything that is not a plausible model endpoint.
+
+    The URL arrives from the page, which means it arrives from whoever can
+    reach this port, so the gateway will fetch whatever it is told to fetch.
+    That is fine for the local models this exists to talk to and not fine as
+    a general-purpose fetcher, so: HTTP only, and not the metadata service.
+    """
+    from urllib.parse import urlsplit
+
+    parsed = urlsplit(url)
+    if parsed.scheme not in ("http", "https"):
+        raise OpponentError(
+            "The endpoint must be an http:// or https:// address.",
+            f"got {parsed.scheme or 'no'} scheme",
+        )
+    if not parsed.hostname:
+        raise OpponentError("The endpoint has no host.", url[:120])
+
+    host = parsed.hostname.lower().strip("[]")
+    if host in BLOCKED_HOSTS or host.endswith(".metadata.internal"):
+        raise OpponentError(
+            "That address is not somewhere a chess opponent lives.",
+            "cloud metadata services are refused",
+        )
+    return url
+
+
 def list_models(base, key, timeout=6):
     """Model ids the endpoint will admit to, chat models first."""
-    request = urllib.request.Request(f"{base}/v1/models")
+    request = urllib.request.Request(f"{check_endpoint(base)}/v1/models")
     if key:
         request.add_header("Authorization", f"Bearer {key}")
     with urllib.request.urlopen(request, timeout=timeout) as response:
-        data = json.loads(response.read()).get("data") or []
+        data = json.loads(response.read(MAX_ENDPOINT_BYTES)).get("data") or []
     ids = [entry.get("id") for entry in data if entry.get("id")]
     # An embedding model cannot hold a conversation, so never offer one as the
     # chat model just because it happens to be listed first.
@@ -267,7 +311,7 @@ def resolve_model(base, key, timeout=6):
 def _endpoint_error(exc):
     """The endpoint's own words, when it bothered to explain itself."""
     try:
-        body = exc.read().decode("utf-8", "replace")
+        body = exc.read(MAX_ENDPOINT_BYTES).decode("utf-8", "replace")
     except Exception:  # noqa: BLE001
         return None
     try:
@@ -283,7 +327,7 @@ def _endpoint_error(exc):
 
 
 def llm_chat(config, messages, timeout):
-    base = (config.get("url") or DEFAULT_LLM_URL).rstrip("/")
+    base = check_endpoint((config.get("url") or DEFAULT_LLM_URL).rstrip("/"))
     payload = {
         "messages": messages,
         "temperature": float(config.get("temperature", DEFAULT_TEMPERATURE)),
@@ -311,7 +355,7 @@ def llm_chat(config, messages, timeout):
 
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
-            body = json.loads(response.read())
+            body = json.loads(response.read(MAX_ENDPOINT_BYTES))
     except urllib.error.HTTPError as exc:
         # The endpoint answered and said no. Pass on what it said, rather than
         # reporting it as unreachable — the two need entirely different fixes.
@@ -582,12 +626,12 @@ def handle_health(body):
 
     endpoint = {"url": base, "ok": False, "model": None, "error": None}
     try:
-        request = urllib.request.Request(f"{base}/v1/models")
+        request = urllib.request.Request(f"{check_endpoint(base)}/v1/models")
         key = (http_config.get("apiKey") or "").strip()
         if key:
             request.add_header("Authorization", f"Bearer {key}")
         with urllib.request.urlopen(request, timeout=4) as response:
-            data = json.loads(response.read()).get("data") or []
+            data = json.loads(response.read(MAX_ENDPOINT_BYTES)).get("data") or []
         endpoint["ok"] = True
         if data:
             endpoint["model"] = data[0].get("id")
@@ -601,6 +645,29 @@ def handle_health(body):
         "relay": RELAY.status(),
         "addresses": local_addresses(SERVED_PORT[0]) if SERVED_PORT[0] else [],
     }, 200
+
+
+class Gateway(ThreadingHTTPServer):
+    """The HTTP server, with Windows' port sharing turned off.
+
+    HTTPServer sets SO_REUSEADDR, which on Unix only shortens the TIME_WAIT
+    dance. On Windows it means something else entirely: a second process can
+    bind a port that is already being listened on, and the two then split
+    incoming connections between them unpredictably.
+
+    That is a hijack primitive — anything else running as this user can take
+    half the game's traffic — and, more prosaically, it is what happens when
+    somebody double-clicks the launcher twice. Two gateways, one port, one of
+    them holding the relay game and the other answering half the requests, and
+    nothing anywhere saying so.
+    """
+
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
 
 def relay_contract(origin):
@@ -764,12 +831,42 @@ class Handler(SimpleHTTPRequestHandler):
             self.send_header("Cache-Control", "no-cache, must-revalidate")
         super().end_headers()
 
+    def _same_origin(self):
+        """Refuse anything a browser sends us from another site.
+
+        A cross-origin POST of Content-Type text/plain needs no preflight, so
+        without this check any page the player happens to visit can drive this
+        gateway: start games, cancel turns, and — through the endpoint
+        opponent — make this machine fetch arbitrary URLs and hand back what
+        they said. Browsers always attach Origin to such a request; ordinary
+        clients like curl or an agent do not send it at all, so the relay
+        contract is unaffected.
+        """
+        origin = self.headers.get("Origin")
+        if not origin:
+            return True
+        host = self.headers.get("Host") or ""
+        return origin in (f"http://{host}", f"https://{host}")
+
+    def _local_page_only(self):
+        """Extra gate for the routes only this application's page calls.
+
+        A custom header cannot be set cross-origin without a preflight, and
+        this server answers no preflight, so requiring one keeps these routes
+        reachable from the page and unreachable from anybody else's.
+        """
+        return self.headers.get("X-Chess3D") is not None
+
     def _query(self):
         from urllib.parse import parse_qs, urlsplit
         return {k: v[0] for k, v in parse_qs(urlsplit(self.path).query).items()}
 
     def do_GET(self):
         route = self.path.split("?", 1)[0].rstrip("/") or "/"
+
+        if not self._same_origin():
+            self._send_json({"error": "cross-origin requests are refused"}, 403)
+            return
 
         if route == "/relay/turn":
             params = self._query()
@@ -824,10 +921,44 @@ class Handler(SimpleHTTPRequestHandler):
             self._send_json({"error": "not found"}, 404)
             return
 
+        if not self._same_origin():
+            self._send_json({"error": "cross-origin requests are refused"}, 403)
+            return
+
+        # /move can be told to fetch an arbitrary URL, so it is the one route
+        # worth locking to this application's own page.
+        if route in ("/move", "/health") and not self._local_page_only():
+            self._send_json(
+                {"error": "this route is for the game page",
+                 "detail": "send the X-Chess3D header"}, 403)
+            return
+
         try:
             length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            self._send_json({"error": "malformed request"}, 400)
+            return
+
+        if length > MAX_REQUEST_BYTES:
+            # Answer properly rather than hanging up mid-upload: read the body
+            # away in chunks so it is never held in memory, but only up to a
+            # point — past that the sender is not making a mistake.
+            drained = 0
+            while drained < length and drained < MAX_DRAIN_BYTES:
+                chunk = self.rfile.read(min(65536, length - drained))
+                if not chunk:
+                    break
+                drained += len(chunk)
+            self.close_connection = True
+            self._send_json({"error": "request too large",
+                             "detail": f"limit is {MAX_REQUEST_BYTES} bytes"}, 413)
+            return
+
+        try:
             raw = self.rfile.read(length) if length else b"{}"
             body = json.loads(raw or b"{}")
+            if not isinstance(body, dict):
+                raise ValueError("expected an object")
         except (ValueError, json.JSONDecodeError):
             self._send_json({"error": "malformed request"}, 400)
             return
@@ -882,7 +1013,15 @@ def main():
         print(f"web/ not found next to server.py (looked in {WEB_ROOT})", file=sys.stderr)
         return 1
 
-    server = ThreadingHTTPServer((args.host, args.port), Handler)
+    try:
+        server = Gateway((args.host, args.port), Handler)
+    except OSError as exc:
+        print(f"Could not listen on port {args.port}: {exc}", file=sys.stderr)
+        print("Something is already using it — most likely AI Chess3D is "
+              "already running.", file=sys.stderr)
+        print(f"Close that window, or start this one with --port "
+              f"{args.port + 1}.", file=sys.stderr)
+        return 1
     SERVED_PORT[0] = args.port
     addresses = local_addresses(args.port)
 
@@ -890,7 +1029,9 @@ def main():
     for url in addresses:
         print(f"  {url}")
     if len(addresses) > 1:
-        print("  (the second one works from a phone on the same network)")
+        print("  (the second one works from a phone on the same network,")
+        print("   which also means anyone on that network can reach the game;")
+        print("   run with --host 127.0.0.1 to keep it to this machine)")
     print("  ctrl-c to stop")
     # Request logging goes to stderr, which is unbuffered. Without this flush
     # the addresses sit in a buffer behind it whenever output is redirected or
