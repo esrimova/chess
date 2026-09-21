@@ -192,6 +192,7 @@ class App {
     hud.el.btnSpin.addEventListener('click', () => this.rig.spin());
     hud.el.btnResetView.addEventListener('click', () => this.rig.reset());
     hud.el.btnUndo.addEventListener('click', () => this.undo());
+    hud.el.btnNew.addEventListener('click', () => this.confirmNewGame());
 
     hud.el.cancelThink.addEventListener('click', () => {
       if (this.abort) this.abort.abort();
@@ -249,6 +250,8 @@ class App {
     fetch('./relay/cancel', { method: 'POST' }).catch(() => {});
     this.playing = false;
     this.picker.enabled = false;
+    this.stopWatchingAi();
+    this.hud.setAiStatus(null);
     this.idle();
     this.clearSelection();
     this.hud.hideToast();
@@ -286,6 +289,57 @@ class App {
     // which is the point — the player hands over a door, not a manual.
     this.hud.setRelayAddress(new URL('relay', window.location.href).href);
     this.watchRelay();
+  }
+
+  /**
+   * Report the AI's connection while the game runs.
+   *
+   * Only the relay has a connection to watch, and watching it is one cheap
+   * local request. An endpoint is not polled — calling someone's model every
+   * few seconds to ask if it is awake is rude, and its real state is whatever
+   * the last move attempt did, which is reported from there instead.
+   */
+  watchAi(settings) {
+    this.stopWatchingAi();
+    if (settings.opponent === 'relay') {
+      const tick = async () => {
+        try {
+          const status = await fetch('./relay/status', { cache: 'no-store' }).then((r) => r.json());
+          if (status.waiting_for_move && status.connected) {
+            this.hud.setAiStatus('busy', 'AI is on the move');
+          } else if (status.connected) {
+            const who = status.agent ? status.agent.split('/')[0] : 'AI';
+            this.hud.setAiStatus('live', `${who} connected`);
+          } else if (status.waiting_for_move) {
+            this.hud.setAiStatus('down', 'Waiting for an AI to connect');
+          } else {
+            this.hud.setAiStatus('idle', 'No AI connected');
+          }
+        } catch {
+          this.hud.setAiStatus('down', 'Gateway unreachable');
+        }
+      };
+      this._aiTick = tick;
+      tick();
+      this._aiWatch = setInterval(tick, 3000);
+      return;
+    }
+    if (settings.opponent === 'http') {
+      this.hud.setAiStatus('idle', 'Endpoint — not contacted yet');
+      return;
+    }
+    this.hud.setAiStatus(null);
+  }
+
+  stopWatchingAi() {
+    if (this._aiWatch) clearInterval(this._aiWatch);
+    this._aiWatch = null;
+    this._aiTick = null;
+  }
+
+  /** Refresh the indicator now, rather than on the next poll. */
+  refreshAiStatus() {
+    if (this._aiTick) this._aiTick();
   }
 
   watchRelay() {
@@ -356,6 +410,8 @@ class App {
     this.settings = settings;
     this.hud.saveSettings(settings);
 
+    // Release anything the previous game left blocked on the relay.
+    fetch('./relay/cancel', { method: 'POST' }).catch(() => {});
     this.game.reset();
     this.idle();
     this.lastMove = null;
@@ -370,13 +426,43 @@ class App {
     this.rig.setSide(settings.side === 'b' ? 'b' : 'w', true);
     this.hud.showSetup(false);
     this.hud.hideGameOver();
-    this.stopWatchingRelay();
     this.playing = true;
+    // The setup screen's watcher hands over to the in-game one; leaving both
+    // running would poll the gateway twice for the same answer.
+    this.stopWatchingRelay();
+    this.watchAi(settings);
 
     this.hud.showHint(matchMedia('(pointer: coarse)').matches);
     // The chrome that appears with the game changes what space is free.
     this.frameBoard();
     this.loop();
+  }
+
+  /**
+   * New game, same opponent and settings.
+   *
+   * A game in progress is worth a second press — losing one to a stray click
+   * on a small control would be its own bug. The button asks in place rather
+   * than opening a dialog over the board.
+   */
+  confirmNewGame() {
+    const button = this.hud.el.btnNew;
+    if (!this.playing || this.game.history().length === 0 || button.dataset.armed) {
+      delete button.dataset.armed;
+      button.textContent = '✚';
+      button.title = 'New game';
+      this.startGame();
+      return;
+    }
+    button.dataset.armed = '1';
+    button.textContent = '?';
+    button.title = 'Press again to start a new game';
+    clearTimeout(this._armTimer);
+    this._armTimer = setTimeout(() => {
+      delete button.dataset.armed;
+      button.textContent = '✚';
+      button.title = 'New game';
+    }, 3000);
   }
 
   async undo() {
@@ -438,6 +524,9 @@ class App {
         this.picker.enabled = false;
         this.hud.setStatus(status, engine.name);
         this.hud.setThinking(true);
+        // The moment the board starts waiting is when the indicator matters
+        // most, so do not leave it to the next poll three seconds away.
+        this.refreshAiStatus();
         try {
           uci = await engine.getMove(this.game.fen(), legal, this.abort.signal);
         } catch (error) {
@@ -466,6 +555,10 @@ class App {
       this.busy = false;
 
       this.lastMove = move;
+      // An endpoint has no connection to watch, so its answer is its status.
+      if (this.settings && this.settings.opponent === 'http' && !engine.isHuman) {
+        this.hud.setAiStatus('live', `${engine.name} answered`);
+      }
       // Memory reports the line it is following once the move identifies one.
       if (!engine.isHuman && engine.lastDetail && engine.lastDetail.opening) {
         this.hud.setOpening(engine.lastDetail.opening);
@@ -492,6 +585,9 @@ class App {
   }
 
   reportEngineFailure(engine, error) {
+    if (this.settings && this.settings.opponent === 'http') {
+      this.hud.setAiStatus('down', 'Endpoint failed');
+    }
     const detail = error instanceof EngineError ? error.detail : (error && error.message);
     this.hud.toast(
       error.message || 'The opponent failed.',

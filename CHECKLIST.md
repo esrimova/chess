@@ -509,12 +509,27 @@ and pieces together**.
 - [—] Backend testing — no server-side surface.
 - [x] Frontend testing — plays, then lifts onto a board that is already drawn.
 
-**13.2 HUD** — turn, check and game-over states, move list, captured pieces, undo,
-new game, theme picker, camera buttons.
+**13.2 HUD** — turn, check and game-over states, live AI indicator, move list,
+captured pieces, undo, new game, theme picker, camera buttons.
 - [x] Implementation
 - [—] Backend testing — no server-side surface.
 - [x] Frontend testing — move list read `1. e4 e5 2. Bc4 Nc6 3. Qh5 Nf6 4. Qxf7#`,
-  captured pieces appeared, undo stepped back correctly, the menu left the game cleanly.
+  captured pieces appeared, undo stepped back correctly, the menu left the game
+  cleanly. The AI indicator was watched through a full cycle: connected, gone
+  stale once nothing had called in for seventy seconds, then connected again
+  when a client returned. New game armed on the first press and restarted on the
+  second, back to thirty-two pieces and an empty move list.
+
+> **Log (13.2) — the indicator is polled, so it lagged where it mattered.** A
+> three-second poll meant the moment the board began waiting for the AI — the
+> one moment the player is actually looking at it — could show a stale answer
+> for a full tick. The turn loop now refreshes it the instant it starts
+> waiting, and the poll only covers what happens after that.
+>
+> **Log (13.2) — only the relay is polled.** An endpoint's status could be
+> checked the same way, but calling someone's model every few seconds to ask
+> whether it is awake is rude and costs them. Its state is whatever the last
+> move attempt did, reported from there instead.
 
 **13.3 Promotion picker** — appears, offers four, blocks the turn.
 - [x] Implementation

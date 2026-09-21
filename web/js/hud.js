@@ -64,6 +64,9 @@ export class Hud {
       btnSpin: $('btn-spin'),
       btnResetView: $('btn-reset-view'),
       btnUndo: $('btn-undo'),
+      btnNew: $('btn-new'),
+      aiStatus: $('ai-status'),
+      aiStatusText: $('ai-status-text'),
       gameoverNew: $('gameover-new'),
       gameoverReview: $('gameover-review'),
     };
@@ -234,6 +237,24 @@ export class Hud {
 
   setThinking(on) {
     this.el.thinking.hidden = !on;
+  }
+
+  /**
+   * The AI's connection, shown while the game is running.
+   *
+   * `state` is one of 'live', 'busy', 'down' or 'idle'; anything else hides the
+   * indicator, which is what memory gets — there is no connection to report.
+   */
+  setAiStatus(state, text) {
+    const el = this.el.aiStatus;
+    if (!state) {
+      el.hidden = true;
+      return;
+    }
+    el.hidden = false;
+    el.className = `ai-status ${state === 'idle' ? '' : state}`.trim();
+    el.title = text;
+    this.el.aiStatusText.textContent = text;
   }
 
   /** The one thing the player hands over. The contract lives behind it. */

@@ -113,6 +113,9 @@
     <span class="dot" id="turn-dot"></span>
     <span id="status-text">White to move</span>
   </div>
+  <div id="ai-status" class="ai-status" hidden>
+    <span class="dot-live"></span><span id="ai-status-text">AI</span>
+  </div>
   <div class="spacer"></div>
   <div id="thinking" hidden>
     <span class="pulse"></span><span id="thinking-text">Thinking</span>
@@ -121,6 +124,7 @@
 </header>
 
 <div id="controls" hidden>
+  <button id="btn-new" class="icon" type="button" title="New game" aria-label="New game">✚</button>
   <button id="btn-flip" class="icon" type="button" title="Flip sides" aria-label="Flip sides">⇅</button>
   <button id="btn-spin" class="icon" type="button" title="Spin the board" aria-label="Spin the board">⟳</button>
   <button id="btn-reset-view" class="icon" type="button" title="Reset view" aria-label="Reset view">⌖</button>

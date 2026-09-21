@@ -43,8 +43,15 @@ The server is standard library only; Three.js and chess.js are vendored in
 | **Zoom** | Scroll wheel. |
 | **On a phone** | One finger for pieces, two fingers to turn, pinch to zoom. |
 
-The buttons on the right flip to the other side, spin the board, reset the
-view, and take a move back.
+The buttons on the right start a new game, flip to the other side, spin the
+board, reset the view, and take a move back. New game asks twice once a game is
+under way, so a stray press does not throw one away.
+
+While an AI is playing, an indicator next to the turn shows whether it is
+actually there: connected, on the move, or not connected at all. For AI Connect
+that is the live state of the connection; for AI Endpoint it is what the last
+move attempt did, because polling someone's model every few seconds to ask if
+it is awake would be rude.
 
 ---
 

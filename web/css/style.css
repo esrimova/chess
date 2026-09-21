@@ -305,6 +305,35 @@ button.small { padding: 5px 10px; font-size: 12.5px; border-radius: 8px; }
 .dot.black { background: #241c16; box-shadow: 0 0 0 1px rgba(255,255,255,0.35) inset; }
 .dot.check { box-shadow: 0 0 0 2px var(--danger); }
 
+.ai-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  border-radius: 999px;
+  padding: 7px 15px 7px 12px;
+  backdrop-filter: blur(10px);
+  font-size: 13.5px;
+  white-space: nowrap;
+  color: var(--ink-dim);
+}
+.dot-live {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: #7d7973;
+  flex: none;
+}
+.ai-status.live { color: var(--ink); }
+.ai-status.live .dot-live {
+  background: var(--ok);
+  box-shadow: 0 0 0 3px rgba(87, 185, 127, 0.18);
+  animation: pulse 2.2s ease-in-out infinite;
+}
+.ai-status.busy .dot-live { background: var(--accent); animation: pulse 1s ease-in-out infinite; }
+.ai-status.down { color: var(--danger); }
+.ai-status.down .dot-live { background: var(--danger); }
+
 #thinking {
   display: flex;
   align-items: center;
@@ -451,6 +480,10 @@ button.icon {
 
 @media (max-width: 760px) {
   .sheet { padding: 20px; border-radius: 16px; }
+  /* The turn indicator is the one that must survive; the AI chip drops to a
+     dot so the bar still fits a phone. */
+  .ai-status { padding: 7px 10px; }
+  .ai-status #ai-status-text { display: none; }
   .sheet h1 { font-size: 26px; }
 
   #panel {
