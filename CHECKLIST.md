@@ -423,6 +423,17 @@ involved.
 > while it existed now falls back to the first opponent instead of leaving the
 > dropdown on no value.
 >
+> **Log (10.1) — a flaky test that was right about the code and wrong about
+> chess.** A test asserted that the opening move never carries an opening name,
+> on the reasoning that every line in the book starts from the same position.
+> It failed about one run in eight. The book was correct and the test was not:
+> `1.f4` begins exactly one line in it and `1.Nf3` begins exactly one, so
+> calling them the Bird and the Réti is simply true — and memory takes a
+> sideline a quarter of the time, which is when it landed on one of them. The
+> rule is whether a move identifies a line, not how early it is. The test now
+> checks both halves of that: `1.e4` unnamed because a dozen lines share it,
+> `1.f4` named because one does.
+>
 > **Log (10.1) — naming a line too early is a lie.** The book first stored one
 > name per position, so the opening move reported "Alekhine Defence" — every
 > line in the book shares the starting position, and sorting alphabetically

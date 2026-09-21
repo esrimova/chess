@@ -319,13 +319,26 @@ def run_tests(base):
         assert status == 200, data
         assert data["detail"].get("opening") == "Sicilian, Najdorf", data
 
-    @test("the opening move is not given a name, because it identifies nothing")
+    @test("a move shared by many lines is not named; one that is unique is")
     def _():
-        # Every line in the book starts from here, so naming one would be a lie.
-        status, data = post(base + "/move", {
-            "kind": "memory", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+        # 1.e4 begins a dozen lines in the book, so naming one of them would be
+        # a lie. 1.f4 begins exactly one, and calling that the Bird is simply
+        # true — the rule is about whether the move identifies a line, not
+        # about how early it is.
+        shared = [m for m in OPENING_MOVES if m["uci"] == "e2e4"]
+        _status, data = post(base + "/move", {
+            "kind": "memory", "fen": OPENING_FEN, "legal": shared,
         })
+        assert data["move"] == "e2e4", data
         assert not data["detail"].get("opening"), data
+
+        unique = [{"uci": "f2f4", "san": "f4", "captured": None,
+                   "promotion": None, "check": False}]
+        _status, data = post(base + "/move", {
+            "kind": "memory", "fen": OPENING_FEN, "legal": unique,
+        })
+        assert data["move"] == "f2f4", data
+        assert data["detail"].get("opening") == "Bird Opening", data
 
     @test("a position is recognised however it was transposed into")
     def _():
