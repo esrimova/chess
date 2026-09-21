@@ -38,7 +38,7 @@ export class Hud {
       httpModel: $('http-model'),
       httpKey: $('http-key'),
       relayConfig: $('relay-config'),
-      relayInstructions: $('relay-instructions'),
+      relayAddress: $('relay-address'),
       relayState: $('relay-state'),
       copyRelay: $('copy-relay'),
       difficulty: $('difficulty'),
@@ -94,14 +94,14 @@ export class Hud {
     });
 
     this.el.copyRelay.addEventListener('click', async () => {
-      const text = this.el.relayInstructions.textContent;
+      const text = this.el.relayAddress.textContent;
       try {
         await navigator.clipboard.writeText(text);
         this.el.copyRelay.textContent = 'Copied';
       } catch {
         // Clipboard access can be refused; select it so it can be copied by hand.
         const range = document.createRange();
-        range.selectNodeContents(this.el.relayInstructions);
+        range.selectNodeContents(this.el.relayAddress);
         const sel = window.getSelection();
         sel.removeAllRanges();
         sel.addRange(range);
@@ -236,9 +236,9 @@ export class Hud {
     this.el.thinking.hidden = !on;
   }
 
-  /** Show the instructions the player hands to their AI. */
-  setRelayInstructions(text) {
-    this.el.relayInstructions.textContent = text;
+  /** The one thing the player hands over. The contract lives behind it. */
+  setRelayAddress(url) {
+    this.el.relayAddress.textContent = url;
   }
 
   /** Report whether anything has connected to the relay. */
@@ -256,7 +256,7 @@ export class Hud {
         : `Connected${who} — ready`;
       el.className = 'relay-state live';
     } else {
-      el.textContent = 'Nothing connected yet. Start the game, then give your AI the instructions.';
+      el.textContent = 'Nothing connected yet. Start the game, then give your AI the address.';
       el.className = 'relay-state';
     }
   }

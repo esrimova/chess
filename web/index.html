@@ -64,15 +64,14 @@
     </section>
 
     <section class="field opponent-config" id="relay-config" hidden>
-      <label>Give these instructions to your AI</label>
+      <label>Give this address to your AI</label>
       <div class="relay-box">
-        <pre id="relay-instructions">Loading…</pre>
+        <code id="relay-address">…</code>
         <button id="copy-relay" class="ghost small" type="button">Copy</button>
       </div>
-      <p class="hint">Any AI that can make HTTP requests: paste this into a command
-        line agent, hand it to a model with a fetch tool, or write it against an API.
-        It connects once and plays the whole game, so unlike a program started per
-        move it remembers what it has been doing.</p>
+      <p class="hint">Anything that can make HTTP requests will do: a command line
+        agent, a model with a fetch tool, a few lines against an API. Tell it to
+        read the address and play — the contract is served there.</p>
       <p class="relay-state" id="relay-state">Nothing connected yet.</p>
     </section>
 

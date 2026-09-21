@@ -585,16 +585,39 @@ def run_tests(base):
         thread.start()
         return thread, seen
 
-    @test("the instructions are served, and say what to do")
+    @test("the address explains the whole game to whoever arrives at it")
     def _():
+        # The player hands over one address and nothing else, so this has to
+        # stand entirely on its own.
         status, body, _headers = get(base + "/relay")
         assert status == 200, status
         text = body.decode("utf-8")
+        assert "chess" in text.lower(), text[:200]
         assert "/relay/turn" in text and "/relay/move" in text, text[:200]
-        assert "legal" in text and "id" in text
+        for needed in ("legal", "id", "color", "your_turn"):
+            assert needed in text, "the contract never mentions " + needed
+        assert "until the game ends" in text, "it never says to keep playing"
         # Transport-agnostic: nothing that assumes a terminal or an install.
         for word in ("terminal", "shell", "stdin", "npm", "pip install"):
-            assert word not in text.lower(), "instructions mention " + word
+            assert word not in text.lower(), "the contract mentions " + word
+
+    @test("the contract is also available as JSON, for something writing code")
+    def _():
+        _status, body, headers = get(base + "/relay?format=json")
+        assert "application/json" in headers.get("Content-Type", ""), headers
+        data = json.loads(body)
+        assert data["game"] == "chess", data
+        assert data["endpoints"]["turn"]["method"] == "GET", data
+        assert data["endpoints"]["move"]["method"] == "POST", data
+        assert data["endpoints"]["turn"]["url"].endswith("/relay/turn"), data
+        assert data["rules"], data
+
+        # Accept: application/json gets the same thing without the query.
+        request = urllib.request.Request(base + "/relay",
+                                         headers={"Accept": "application/json"})
+        with urllib.request.urlopen(request, timeout=10) as resp:
+            negotiated = json.loads(resp.read())
+        assert negotiated == data, "Accept negotiation disagreed with ?format=json"
 
     @test("a connected client is handed the turn and its move is played")
     def _():

@@ -71,12 +71,20 @@ API key:   (only if the endpoint wants one)
 ```
 
 **AI Connect** — the app waits on its port and your AI comes to it. Pick it,
-press Start, and copy the instructions it shows you. Give them to anything that
-can make HTTP requests: paste them into a command line agent, hand them to a
-model with a fetch tool, or write them against an API in twenty lines. Nothing
-to install, nothing to spawn, no command to get right.
+press Start, and copy the one address it shows you:
 
-It is two calls:
+```
+http://127.0.0.1:8770/relay
+```
+
+Hand that to anything that can make HTTP requests — a command line agent, a
+model with a fetch tool, a few lines against an API — and tell it to play.
+**The address explains itself.** Whatever arrives there is given the whole
+contract: the two calls, the shape of what comes back, and the rule to keep
+going until the game ends. Nothing to install, nothing to spawn, no command to
+get right, and nothing for you to read first.
+
+Behind it:
 
 ```
 GET  /relay/turn    waits until it is your move, then returns the position
@@ -86,7 +94,8 @@ POST /relay/move    {"id": <from the turn>, "move": "<one of legal>"}
 
 `GET /relay/turn` blocks until there is something to answer, so a client waits
 rather than polls. An illegal move is refused with the reason and the list of
-what is legal, and the turn stays open.
+what is legal, and the turn stays open. `GET /relay?format=json` returns the
+same contract as data, for something generating code against it.
 
 The point of this over spawning a command per move: **one connection lasts the
 whole game**, so the AI remembers what it has been doing. A process started
@@ -215,7 +224,7 @@ away, and it is what lets the same URL work from a phone on the same network.
 python run-tests.py
 ```
 
-Eighty-five tests in three suites, nothing mocked: the rules layer is checked
+Eighty-six tests in three suites, nothing mocked: the rules layer is checked
 against perft counts, the piece set against its own geometry, and the gateway by
 starting it as a real process and reaching it over real HTTP. The last gateway
 test plays a move against whatever model is listening on `127.0.0.1:1234`, and

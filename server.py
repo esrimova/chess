@@ -603,47 +603,131 @@ def handle_health(body):
     }, 200
 
 
-def relay_instructions(origin):
-    """What the player copies and hands to an AI.
+def relay_contract(origin):
+    """The contract, as data. Served as JSON and rendered as text below."""
+    return {
+        "game": "chess",
+        "you_are": "one of the two players",
+        "how_it_works": (
+            "Ask for your turn, play a move, repeat until the game ends. "
+            "The turn call waits for you, so you do not need to poll."
+        ),
+        "endpoints": {
+            "turn": {
+                "method": "GET",
+                "url": origin + "/relay/turn",
+                "blocks": True,
+                "note": (
+                    "Waits until it is your move, then returns the position. "
+                    "Add ?wait=N to set how many seconds it waits (max 120). "
+                    "If it returns your_turn false, nothing is wrong - the "
+                    "other player is still thinking. Ask again."
+                ),
+                "returns": {
+                    "your_turn": True,
+                    "id": 7,
+                    "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+                    "legal": ["a3", "a4", "Nf3", "..."],
+                    "legal_uci": ["a2a3", "a2a4", "g1f3", "..."],
+                    "color": "black",
+                },
+            },
+            "move": {
+                "method": "POST",
+                "url": origin + "/relay/move",
+                "content_type": "application/json",
+                "body": {"id": 7, "move": "Nf3"},
+                "note": (
+                    "The id must be the one from the turn you are answering. "
+                    "The move must be one of the strings in legal (or in "
+                    "legal_uci). The reply is {ok: true} or {ok: false, error} "
+                    "explaining what was wrong."
+                ),
+            },
+            "status": {
+                "method": "GET",
+                "url": origin + "/relay/status",
+                "note": "Whether anything is connected and whether a move is wanted.",
+            },
+        },
+        "rules": [
+            "Play only moves from the legal list you were given for that turn.",
+            "Send back the id you were given; an old id is refused.",
+            "Keep going until the game ends. Do not stop after one move.",
+            "You play the colour the color field tells you. Play to win.",
+        ],
+        "formats": {
+            "text": origin + "/relay",
+            "json": origin + "/relay?format=json",
+        },
+    }
 
-    Deliberately says nothing about terminals, agents or SDKs: it is two HTTP
-    calls, so it reads the same whether it is pasted into a command line tool,
-    handed to a model with a fetch tool, or implemented against an API in
-    twenty lines.
+
+def relay_contract_text(origin):
+    """The same contract for a reader.
+
+    Whatever arrives here has been given an address and nothing else, so this
+    has to explain the whole game from cold. It says nothing about terminals
+    or SDKs: it is two HTTP calls, and it reads the same to an agent, a model
+    with a fetch tool, or someone writing it against an API.
     """
-    return f"""You are playing a game of chess over HTTP. You are one of the players.
+    return f"""CHESS OVER HTTP
 
-The game is at {origin}
+You have been given the address of a chess game, and you are one of the two
+players. Everything you need is below.
 
-Repeat these two steps until the game is over:
+The loop is: ask for your turn, send a move, repeat until the game ends.
 
-1. GET {origin}/relay/turn
+
+1. YOUR TURN
+
+   GET {origin}/relay/turn
+
    This call waits until it is your move, so it may take a while to answer.
-   When it is your move it returns JSON like:
+   You do not need to poll. Add ?wait=N to choose how long it waits before
+   answering anyway (seconds, up to 120).
+
+   When it is your move:
 
      {{"your_turn": true,
        "id": 7,
        "fen": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
        "legal": ["a3", "a4", "Nf3", ...],
+       "legal_uci": ["a2a3", "a2a4", "g1f3", ...],
        "color": "black"}}
 
-   If it returns {{"your_turn": false}} nothing is wrong — the other player is
-   still thinking. Just call it again.
+   When it is not:
 
-2. Decide your move, then POST it to {origin}/relay/move
+     {{"your_turn": false}}
+
+   Nothing is wrong when you see that - the other player is still thinking.
+   Ask again.
+
+
+2. YOUR MOVE
+
+   POST {origin}/relay/move
    Content-Type: application/json
-   Body: {{"id": <the id from step 1>, "move": "<one move from "legal">"}}
 
-   The reply is {{"ok": true}} if it was played, or {{"ok": false, "error": ...}}
-   with the reason if it was not — read the reason and try again.
+     {{"id": 7, "move": "Nf3"}}
 
-Rules:
-- Play only moves from the "legal" list you were given for that turn.
-- Send the "id" you were given. If you send an old one you will be told the
-  turn has passed; ask for the turn again.
-- Keep going. Do not stop after one move — loop until GET /relay/turn stops
-  coming back with your_turn, or the game visibly ends.
-- You are playing the colour the "color" field tells you. Play to win.
+   The id must be the one from the turn you are answering. The move must be
+   one of the strings you were given in "legal" (or "legal_uci").
+
+   You get back {{"ok": true}}, or {{"ok": false, "error": "..."}} saying what
+   was wrong - an illegal move, or a turn that has already passed. The turn
+   stays open when a move is refused, so read the reason and send another.
+
+
+RULES
+
+   - Play only moves from the legal list you were given for that turn.
+   - Send back the id you were given. An old one is refused.
+   - Keep going. Do not stop after one move - loop until the game ends.
+   - You play the colour the "color" field tells you. Play to win.
+
+
+This page is also available as JSON: {origin}/relay?format=json
 """
 
 
@@ -707,12 +791,20 @@ class Handler(SimpleHTTPRequestHandler):
             return
 
         if route == "/relay":
-            body = relay_instructions(self._origin()).encode("utf-8")
+            origin = self._origin()
+            wants_json = (
+                self._query().get("format") == "json"
+                or "application/json" in (self.headers.get("Accept") or "")
+            )
+            if wants_json:
+                self._send_json(relay_contract(origin))
+                return
+            body = relay_contract_text(origin).encode("utf-8")
+            self._no_store = True
             self.send_response(200)
             self.send_header("Content-Type", "text/plain; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
-            self._no_store = True
             self.end_headers()
             self.wfile.write(body)
             return

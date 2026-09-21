@@ -276,18 +276,15 @@ class App {
   }
 
   /** Load the relay instructions and start watching for a connection. */
-  async onOpponentChanged() {
+  onOpponentChanged() {
     const kind = this.hud.el.opponent.value;
     if (kind !== 'relay') {
       this.stopWatchingRelay();
       return;
     }
-    try {
-      const text = await fetch('./relay', { cache: 'no-store' }).then((r) => r.text());
-      this.hud.setRelayInstructions(text);
-    } catch {
-      this.hud.setRelayInstructions('Could not load the instructions — is the gateway running?');
-    }
+    // Only the address. Whatever connects to it reads the contract from there,
+    // which is the point — the player hands over a door, not a manual.
+    this.hud.setRelayAddress(new URL('relay', window.location.href).href);
     this.watchRelay();
   }
 

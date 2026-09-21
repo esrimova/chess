@@ -35,7 +35,7 @@ failed approach is information.
 
 ```bash
 python server.py        # then open http://127.0.0.1:8770
-python run-tests.py     # 85 tests: logic, geometry, gateway
+python run-tests.py     # 86 tests: logic, geometry, gateway
 ```
 
 ### Architectural rule that governs every item
@@ -401,6 +401,18 @@ plays the whole game over one connection.
 - [x] Frontend testing — **a game played through the browser against a client
   connected from a shell**: `1.e4 c5 2.Nf3 d6`, the Sicilian, with the moves
   arriving over the relay and the board showing the connected agent in its detail.
+  The setup screen shows one address and a copy button, nothing else.
+
+> **Log (10.4) — the interface was giving away the plot.** The setup screen
+> first showed the whole protocol in a scrolling box for the player to copy.
+> That put a wall of HTTP in front of someone who only wanted to play, and it
+> made the player the courier for a manual. Now it shows one address. Whatever
+> connects to it reads the contract there — it is served at `/relay` as text
+> for a reader and, with `?format=json` or an `Accept: application/json`
+> header, as data for something writing code against it. The contract has to
+> stand on its own cold, since the address arrives with no other context, and a
+> test asserts it explains the game, names every field, and says to keep
+> playing.
 
 > **Log (10.2) — a blank model is not always "whatever is loaded".** The
 > contract inherited from the AI Interface project is that a blank model field
@@ -617,8 +629,8 @@ normalise six independently generated meshes to one consistent piece height.
 |---|---|---|
 | `tests/logic.test.mjs` | 29 | coordinate contract, rules, perft, a full game |
 | `tests/geometry.test.mjs` | 11 | the generated piece set |
-| `tests/test_gateway.py` | 45 | serving, health, all three opponents, reply parsing |
-| **Total** | **85** | all passing |
+| `tests/test_gateway.py` | 46 | serving, health, all three opponents, reply parsing |
+| **Total** | **86** | all passing |
 
 The gateway suite's last test plays against whatever real model is listening on
 `127.0.0.1:1234` and skips with a notice when nothing is. It ran for real against
