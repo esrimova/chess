@@ -346,6 +346,8 @@ def cli_move(config, fen, moves, difficulty):
         for part in argv
     ]
 
+    argv = resolve_program(argv)
+
     try:
         proc = subprocess.run(
             argv,
@@ -392,6 +394,25 @@ def split_command(command):
             cleaned.append(part)
         return cleaned
     return shlex.split(command)
+
+
+def resolve_program(argv):
+    """Turn argv[0] into something Windows can actually launch.
+
+    Bare names work on POSIX because the shell searches PATH. On Windows,
+    CreateProcess does not apply PATHEXT, so `claude` fails even though
+    `claude.cmd` is on PATH — which rules out every npm- or script-installed
+    tool, the majority of interesting CLI opponents. shutil.which does apply
+    PATHEXT, so resolve through it and hand subprocess a full path.
+    """
+    if not argv:
+        return argv
+    from shutil import which
+
+    found = which(argv[0])
+    if found:
+        return [found] + list(argv[1:])
+    return argv
 
 
 class OpponentError(Exception):

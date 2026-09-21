@@ -35,7 +35,7 @@ failed approach is information.
 
 ```bash
 python server.py        # then open http://127.0.0.1:8770
-python run-tests.py     # 75 tests: logic, geometry, gateway
+python run-tests.py     # 77 tests: logic, geometry, gateway
 ```
 
 ### Architectural rule that governs every item
@@ -362,11 +362,13 @@ validate; re-ask; fail honestly.
 
 **10.4 CLI opponent** — spawn, feed the position, read the move, clean up.
 - [x] Implementation
-- [x] Backend testing — a real command returning a move; the position arriving on
-  stdin; `{fen}` and `{difficulty}` substitution; nonsense output failing honestly;
-  a missing command reported; a hanging command killed at the timeout.
-- [—] Frontend testing — the page cannot tell a CLI opponent from an HTTP one; they
-  share the route, the request shape and the UI path, all covered by 10.2/10.3.
+- [x] Backend testing — a real command returning a move; a bare name resolved
+  through `PATH`/`PATHEXT` and run; the position arriving on stdin; `{fen}` and
+  `{difficulty}` substitution; nonsense output failing honestly; a missing command
+  reported; a hanging command killed at the timeout.
+- [x] Frontend testing — **`claude -p` played `e4` from the opening position**
+  through the gateway in 4.3 s, so Claude Code works as an opponent with no API
+  key and no code change.
 
 > **Log (10.2) — a blank model is not always "whatever is loaded".** The
 > contract inherited from the AI Interface project is that a blank model field
@@ -381,6 +383,16 @@ validate; re-ask; fail honestly.
 > no was reported as unreachable, which points at entirely the wrong fix. HTTP
 > errors are now caught separately and the endpoint's own message is passed
 > through verbatim.
+>
+> **Log (10.4) — bare command names could not launch on Windows.** Found by
+> trying to play the `claude` CLI as an opponent. npm installs it as a `.cmd`
+> shim, and Windows `CreateProcess` does not apply `PATHEXT` for a bare name,
+> so `subprocess` raised *Command not found: claude* for a program plainly on
+> `PATH` — `shutil.which` finds it, `CreateProcess` does not. That ruled out
+> every npm- and script-installed tool, which is most of the interesting CLI
+> opponents. `resolve_program()` now resolves `argv[0]` through `shutil.which`
+> and hands subprocess a full path; an unresolvable name is left alone so the
+> error still names what was asked for. Two tests cover it.
 >
 > **Log (10.4) — Windows quoting.** `shlex.split(posix=False)` keeps the quote
 > characters attached to each token, so an ordinary quoted path —
@@ -562,8 +574,8 @@ normalise six independently generated meshes to one consistent piece height.
 |---|---|---|
 | `tests/logic.test.mjs` | 29 | coordinate contract, rules, perft, a full game |
 | `tests/geometry.test.mjs` | 11 | the generated piece set |
-| `tests/test_gateway.py` | 35 | serving, health, all three opponents, reply parsing |
-| **Total** | **75** | all passing |
+| `tests/test_gateway.py` | 37 | serving, health, all three opponents, reply parsing |
+| **Total** | **77** | all passing |
 
 The gateway suite's last test plays against whatever real model is listening on
 `127.0.0.1:1234` and skips with a notice when nothing is. It ran for real against

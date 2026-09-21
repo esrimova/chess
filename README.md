@@ -71,8 +71,16 @@ position on stdin, and reads the move out of what it prints. `{fen}`,
 `{legal}` and `{difficulty}` are substituted into the command if you use them.
 
 ```
+claude -p          # Claude Code, if you have it installed
 ollama run qwen2.5
 ```
+
+A fresh process runs per move, so a CLI opponent sees the position and the
+legal moves and nothing else — no history, no plan carried between turns.
+
+Commands are resolved through `PATH` including `PATHEXT`, so npm- and
+script-installed tools work on Windows, where a bare name would otherwise
+fail to launch.
 
 **Two players** — both sides on one board.
 
@@ -197,7 +205,7 @@ away, and it is what lets the same URL work from a phone on the same network.
 python run-tests.py
 ```
 
-Seventy-five tests in three suites, nothing mocked: the rules layer is checked
+Seventy-seven tests in three suites, nothing mocked: the rules layer is checked
 against perft counts, the piece set against its own geometry, and the gateway by
 starting it as a real process and reaching it over real HTTP. The last gateway
 test plays a move against whatever model is listening on `127.0.0.1:1234`, and

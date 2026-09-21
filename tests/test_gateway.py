@@ -544,6 +544,34 @@ def run_tests(base):
         assert "error" in data
         assert "not found" in data["error"].lower(), data
 
+    @test("a command is found through PATH, including PATHEXT on Windows")
+    def _():
+        # Windows CreateProcess does not apply PATHEXT for a bare name, so an
+        # npm- or script-installed tool fails to launch even though it is on
+        # PATH. Resolve through shutil.which and hand subprocess a full path.
+        import server as gw
+        from shutil import which
+
+        resolved = gw.resolve_program(["python", "-c", "pass"])
+        assert os.path.isabs(resolved[0]), resolved
+        assert resolved[1:] == ["-c", "pass"], resolved
+        assert os.path.isfile(resolved[0]), resolved
+        # An unknown program is left alone, so the error names what was asked for.
+        assert gw.resolve_program(["definitely-not-a-real-program"]) ==             ["definitely-not-a-real-program"]
+        assert gw.resolve_program([]) == []
+
+    @test("a bare command name on PATH actually runs")
+    def _():
+        # `python` rather than sys.executable: a bare name is the case that
+        # fails without PATHEXT resolution.
+        script = "print('Nc3')"
+        status, data = post(base + "/move", {
+            "kind": "cli", "fen": OPENING_FEN, "legal": OPENING_MOVES,
+            "config": {"command": f'python -c "{script}"'},
+        })
+        assert status == 200, data
+        assert data.get("move") == "b1c3", data
+
     @test("no command configured is reported clearly")
     def _():
         status, data = post(base + "/move", {
