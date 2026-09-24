@@ -14,6 +14,11 @@ rem  that the command exists. The py launcher in particular will happily point
 rem  at an interpreter that has been moved or deleted, and reports it as
 rem  present right up until you try to start it.
 
+rem  A packaged copy carries its own program and needs no Python at all.
+set "EXE="
+if exist "%~dp0AIChess3D.exe" set "EXE=%~dp0AIChess3D.exe"
+if defined EXE goto :run
+
 set "PY="
 
 call :try "py -3"
@@ -40,12 +45,17 @@ if not defined PY (
   exit /b 1
 )
 
+:run
 echo.
 echo   Starting AI Chess3D...
 echo   Close this window to stop the game.
 echo.
 
-%PY% "%~dp0server.py" %*
+if defined EXE (
+  "%EXE%" %*
+) else (
+  %PY% "%~dp0server.py" %*
+)
 set "CODE=%ERRORLEVEL%"
 
 rem  Ctrl-C is how you are meant to stop it, so only hold the window open for

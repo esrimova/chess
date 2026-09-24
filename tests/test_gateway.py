@@ -11,6 +11,9 @@ the thing being tested. Where a real local model *is* listening on :1234, the
 last test uses it.
 
     python tests/test_gateway.py
+
+Set CHESS3D_EXE to the path of a packaged AIChess3D.exe (tools/build-exe.py)
+and the same tests run against that program instead of server.py.
 """
 
 from __future__ import annotations
@@ -157,10 +160,16 @@ OPENING_FEN = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 LEGAL_UCI = {m["uci"] for m in OPENING_MOVES}
 
 
+def gateway_command():
+    """What starts the gateway: the packaged program if asked, else the source."""
+    exe = os.environ.get("CHESS3D_EXE")
+    return [exe] if exe else [sys.executable, os.path.join(ROOT, "server.py")]
+
+
 def main():
     port = free_port()
     proc = subprocess.Popen(
-        [sys.executable, os.path.join(ROOT, "server.py"), "--port", str(port),
+        [*gateway_command(), "--port", str(port),
          "--host", "127.0.0.1", "--no-browser"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
         env={**os.environ, "CHESS3D_QUIET": "1"},
@@ -929,7 +938,7 @@ def run_tests(base):
         # open, and the player wants to play, not to read about a port.
         port = int(base.rsplit(":", 1)[1])
         result = subprocess.run(
-            [sys.executable, os.path.join(ROOT, "server.py"),
+            [*gateway_command(),
              "--port", str(port), "--host", "127.0.0.1", "--no-browser"],
             capture_output=True, text=True, timeout=60,
             env={**os.environ, "CHESS3D_QUIET": "1"},
@@ -946,7 +955,7 @@ def run_tests(base):
         port = blocker.getsockname()[1]
         try:
             result = subprocess.run(
-                [sys.executable, os.path.join(ROOT, "server.py"),
+                [*gateway_command(),
                  "--port", str(port), "--host", "127.0.0.1", "--no-browser"],
                 capture_output=True, text=True, timeout=60,
                 env={**os.environ, "CHESS3D_QUIET": "1"},

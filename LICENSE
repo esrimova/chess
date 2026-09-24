@@ -1,21 +1,60 @@
-MIT License
+AI Chess3D Non-Commercial License
 
 Copyright (c) 2026 esrimova
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
+1. What you may do
 
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
+   You may download, run, copy, and modify this software and its
+   documentation (the "Software"), and share your copies and your modified
+   versions with others, free of charge, for any purpose that is not
+   prohibited in section 2.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+2. What you may not do
+
+   You may not:
+
+   a. sell the Software or any modified version of it, or charge for a copy,
+      a download, a licence, access to it, or support for it; or
+
+   b. include the Software, or any part of it, in any application, product,
+      website or service that bills, charges, or in any other way collects
+      money from its users or from anyone else in connection with it. This
+      includes sales, subscriptions, in-app purchases, paywalls, fees, and
+      income from advertising or sponsorship.
+
+   Charging for something else entirely, on a separate site or in a separate
+   product that does not contain the Software, is not restricted.
+
+3. Conditions
+
+   Every copy or modified version you share must keep this licence and the
+   copyright notice above, and must be shared under this same licence. If you
+   modify the Software you should say so.
+
+4. Other terms
+
+   The copyright holder may license the Software to you or to anyone else
+   under different terms, including commercial ones. That does not change
+   what this licence allows you.
+
+5. Third-party components
+
+   The files in web/js/vendor/ are not covered by this licence. Each keeps its
+   own: three.js is MIT-licensed, and chess.js is BSD-licensed. Their notices
+   are in the files themselves and must be kept.
+
+6. Earlier versions
+
+   This licence applies to the Software as published from the commit that
+   adopted it. Copies obtained earlier, under the MIT licence they were
+   published with, remain under that licence.
+
+7. No warranty
+
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+   FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+   DEALINGS IN THE SOFTWARE.

@@ -7,7 +7,7 @@
 A development script, not part of the running application: it needs
 python-chess, the gateway does not. It expands the named lines below into a
 map of position -> the moves memory knows from that position, and writes
-`openings.json` next to server.py. The gateway loads that file and nothing
+`web/openings.json`. The page loads that file and nothing
 else — the book is data, and the repository stays standard library only.
 
 Positions are keyed by the first four fields of the FEN (placement, side to
@@ -30,7 +30,7 @@ except ImportError:
     raise SystemExit(1)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-OUT = os.path.join(ROOT, "openings.json")
+OUT = os.path.join(ROOT, "web", "openings.json")
 
 # Main lines only, and short ones. The point is that memory plays a sound,
 # recognisable opening and then hands over — not that it memorises theory

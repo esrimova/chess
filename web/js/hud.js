@@ -8,14 +8,24 @@
  * nothing in the 3D has to know.
  */
 
+import { LEVELS, findLevel } from './search.js';
+
 const SYMBOLS = {
   w: { p: '♙', r: '♖', n: '♘', b: '♗', q: '♕', k: '♔' },
   b: { p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚' },
 };
 
 const STORE_KEY = 'chess3d.settings.v1';
+// Colours and the button-text switch live apart from the setup choices, so
+// starting a game (which rewrites those) can never wipe them.
+const LOOK_KEY = 'chess3d.look.v1';
 
 const $ = (id) => document.getElementById(id);
+
+function hexToRgb(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+}
 
 export class Hud {
   constructor() {
@@ -42,9 +52,22 @@ export class Hud {
       relayState: $('relay-state'),
       copyRelay: $('copy-relay'),
       difficulty: $('difficulty'),
+      difficultyHint: $('difficulty-hint'),
       side: $('side'),
       theme: $('theme'),
       themeLive: $('theme-live'),
+      set: $('set'),
+      setLook: $('set-look'),
+      setHint: $('set-hint'),
+      btnLook: $('btn-look'),
+      btnLookSetup: $('btn-look-setup'),
+      look: $('look'),
+      lookNote: $('look-note'),
+      lookList: $('look-list'),
+      lookRemember: $('look-remember'),
+      lookLabels: $('look-labels'),
+      lookReset: $('look-reset'),
+      lookClose: $('look-close'),
       start: $('start'),
       testConnection: $('test-connection'),
       setupStatus: $('setup-status'),
@@ -83,8 +106,30 @@ export class Hud {
     // away rather than hidden.
     this._panelOpen = !matchMedia('(max-width: 760px)').matches;
 
+    this.fillDifficulty();
     this._wireStatic();
     this._applyPanelState();
+  }
+
+  /** The levels come from the engine that defines them, so the two cannot drift apart. */
+  fillDifficulty() {
+    const select = this.el.difficulty;
+    select.innerHTML = '';
+    LEVELS.forEach((level, i) => {
+      const option = document.createElement('option');
+      option.value = level.id;
+      option.textContent = `${i + 1} · ${level.name}`;
+      select.appendChild(option);
+    });
+    select.value = 'club';
+    this.syncDifficultyHint();
+  }
+
+  syncDifficultyHint() {
+    const level = findLevel(this.el.difficulty.value);
+    this.el.difficultyHint.textContent = this.el.opponent.value === 'memory'
+      ? level.blurb
+      : 'Sent to the AI as an instruction. How closely it plays to it is up to the model.';
   }
 
   _applyPanelState() {
@@ -95,6 +140,7 @@ export class Hud {
 
   _wireStatic() {
     this.el.opponent.addEventListener('change', () => this.syncOpponentFields());
+    this.el.difficulty.addEventListener('change', () => this.syncDifficultyHint());
 
     this.el.panelToggle.addEventListener('click', () => {
       this._panelOpen = !this._panelOpen;
@@ -144,6 +190,140 @@ export class Hud {
     this.el.topbar.hidden = !inGame;
     this.el.controls.hidden = !inGame;
     this.el.panel.hidden = !inGame;
+    // The strip only has a height once it is showing.
+    if (inGame) this.trackControlsHeight();
+  }
+
+  /* --------------------------------------------------------- colours panel */
+
+  /** One picker per colour slot. `onChange(slot, hex)` fires as the player drags. */
+  buildLookPanel(slots, onChange) {
+    this._pickers = new Map();
+    this.el.lookList.innerHTML = '';
+    for (const slot of slots) {
+      const row = document.createElement('label');
+      row.className = 'look-row';
+      const name = document.createElement('span');
+      name.textContent = `${slot.label} `;
+      const code = document.createElement('code');
+      name.appendChild(code);
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.setAttribute('aria-label', slot.label);
+      input.addEventListener('input', () => {
+        code.textContent = input.value;
+        onChange(slot.id, input.value);
+      });
+      row.append(name, input);
+      this.el.lookList.appendChild(row);
+      this._pickers.set(slot.id, { input, code, name });
+    }
+  }
+
+  /** Show what the current texture, plus the player's changes, looks like. */
+  syncLookPanel(colors, textureName, remembered) {
+    for (const [id, { input, code }] of this._pickers) {
+      const hex = (colors[id] || '#000000').toLowerCase();
+      input.value = hex;
+      code.textContent = hex;
+    }
+    this.el.lookNote.textContent =
+      `${textureName} — colours sit on top of the texture; its gloss, glow and lighting stay.`;
+    this.el.lookRemember.checked = !!remembered;
+  }
+
+  showLook(show) {
+    this.el.look.hidden = !show;
+  }
+
+  /** Text beside the button glyphs, or the plain glyphs as before. */
+  setButtonText(on) {
+    this.el.controls.classList.toggle('labelled', !!on);
+    this.el.lookLabels.checked = !!on;
+    this.trackControlsHeight();
+  }
+
+  /**
+   * The buttons take their colour from the texture. Text is chosen for
+   * contrast, so a pale button never ends up with pale text.
+   */
+  applyButtonTheme(ui) {
+    if (!ui) return;
+    const root = document.documentElement.style;
+    const [r, g, b] = hexToRgb(ui.button);
+    const [ir, ig, ib] = hexToRgb(ui.ink);
+    root.setProperty('--btn-bg', `rgba(${r}, ${g}, ${b}, 0.86)`);
+    // Hover moves the button a little toward its own text colour.
+    const mix = (a, c) => Math.round(a + (c - a) * 0.16);
+    root.setProperty('--btn-hover', `rgba(${mix(r, ir)}, ${mix(g, ig)}, ${mix(b, ib)}, 0.94)`);
+    root.setProperty('--btn-ink', ui.ink);
+    root.setProperty('--btn-line', `rgba(${ir}, ${ig}, ${ib}, 0.18)`);
+  }
+
+  /**
+   * Publish how tall the control strip is. On a phone it wraps, and the panel
+   * and the hint sit above it, so they need the real height and not a guess.
+   */
+  trackControlsHeight() {
+    const publish = () => {
+      const h = this.el.controls.offsetHeight;
+      if (h) document.documentElement.style.setProperty('--controls-h', `${h}px`);
+    };
+    if (!this._controlsObserver && typeof ResizeObserver !== 'undefined') {
+      this._controlsObserver = new ResizeObserver(publish);
+      this._controlsObserver.observe(this.el.controls);
+    }
+    publish();
+  }
+
+  saveLook(look) {
+    try {
+      localStorage.setItem(LOOK_KEY, JSON.stringify(look));
+    } catch { /* storage unavailable: the colours last for this visit only */ }
+  }
+
+  loadLook() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(LOOK_KEY));
+      if (raw && typeof raw === 'object') {
+        return {
+          labels: raw.labels !== false,
+          custom: raw.custom && typeof raw.custom === 'object' ? raw.custom : {},
+        };
+      }
+    } catch { /* fall through */ }
+    return { labels: true, custom: {} };
+  }
+
+  /** The piece sets, in both the setup screen and the Colours panel. */
+  fillSets(sets, selectedId) {
+    this._sets = sets;
+    for (const select of [this.el.set, this.el.setLook]) {
+      select.innerHTML = '';
+      for (const set of sets) {
+        const option = document.createElement('option');
+        option.value = set.id;
+        option.textContent = set.name;
+        select.appendChild(option);
+      }
+      select.value = selectedId;
+    }
+    this.syncSetHint(selectedId);
+  }
+
+  syncSetHint(id) {
+    const set = (this._sets || []).find((s) => s.id === id);
+    this.el.setHint.textContent = set ? set.summary || '' : '';
+    for (const select of [this.el.set, this.el.setLook]) select.value = id;
+  }
+
+  /** Name the two sides after who they are in the current set. */
+  setSideNames(sides) {
+    const labels = { white: sides.w, black: sides.b };
+    for (const [slot, name] of Object.entries(labels)) {
+      const picker = this._pickers && this._pickers.get(slot);
+      if (picker) picker.name.firstChild.nodeValue = `${name} `;
+    }
   }
 
   fillThemes(themes, selectedId) {
@@ -166,13 +346,14 @@ export class Hud {
     this.el.testConnection.hidden = kind === 'relay';
 
     const hints = {
-      memory: 'Not an AI. It plays a memorised opening book, then falls back to taking '
-        + 'whatever is worth most. No search, no thinking, no setup.',
+      memory: 'Not an AI. It plays a memorised opening book, then searches the position '
+        + 'for the best move it can find. Runs entirely in this page — no setup.',
       http: 'An AI reached over HTTP. Your own machine or anywhere you can reach it.',
       relay: 'The app waits on a port; your AI connects to it and plays. One '
         + 'session for the whole game, so it remembers what it is doing.',
     };
     this.el.opponentHint.textContent = hints[kind] || '';
+    this.syncDifficultyHint();
     this.setSetupStatus('');
   }
 
@@ -206,7 +387,11 @@ export class Hud {
       this.el.opponent.value = settings.opponent;
       if (!this.el.opponent.value) this.el.opponent.selectedIndex = 0;
     }
-    if (settings.difficulty) this.el.difficulty.value = settings.difficulty;
+    if (settings.difficulty) {
+      // Settings saved before there were six levels used easy, medium and
+      // hard; findLevel maps them onto the nearest new one.
+      this.el.difficulty.value = findLevel(settings.difficulty).id;
+    }
     if (settings.side) this.el.side.value = settings.side;
     if (settings.http) {
       if (settings.http.url) this.el.httpUrl.value = settings.http.url;

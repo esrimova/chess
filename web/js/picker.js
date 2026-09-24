@@ -23,7 +23,6 @@ export class Picker {
     this.pieceMeshes = pieceMeshes; // live array, owned by the caller
     this.cameraRig = cameraRig;
 
-    this.enabled = true;
     this.onPick = null;   // (square) => void
     this.onHover = null;  // (square | null) => void
 
@@ -32,6 +31,7 @@ export class Picker {
     this._down = null;
     this._hovered = null;
     this._touch = false;
+    this._enabled = true;
 
     dom.addEventListener('pointerdown', this._onDown, { passive: true });
     dom.addEventListener('pointerup', this._onUp, { passive: true });
@@ -105,5 +105,21 @@ export class Picker {
 
   get hovered() {
     return this._hovered;
+  }
+
+  get enabled() {
+    return this._enabled;
+  }
+
+  /** Disabling mid-hover (the turn changes, the game ends) must also let go
+   *  of whatever square was hovered — nothing fires pointermove on its own
+   *  to clear it, and a hover cue stuck on the board while it is not the
+   *  player's turn would be a lie. */
+  set enabled(value) {
+    this._enabled = value;
+    if (!value && this._hovered !== null) {
+      this._hovered = null;
+      if (this.onHover) this.onHover(null);
+    }
   }
 }

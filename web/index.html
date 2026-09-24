@@ -78,11 +78,7 @@
     <div class="row">
       <section class="field">
         <label for="difficulty">Difficulty</label>
-        <select id="difficulty">
-          <option value="easy">Easy</option>
-          <option value="medium" selected>Medium</option>
-          <option value="hard">Hard</option>
-        </select>
+        <select id="difficulty"></select>
       </section>
       <section class="field">
         <label for="side">You play</label>
@@ -93,9 +89,20 @@
       </section>
     </div>
 
+    <p class="hint level-hint" id="difficulty-hint"></p>
+
     <section class="field">
-      <label for="theme">Theme</label>
-      <select id="theme"></select>
+      <label for="set">Theme</label>
+      <select id="set"></select>
+      <p class="hint" id="set-hint"></p>
+    </section>
+
+    <section class="field">
+      <label for="theme">Theme &rsaquo; Texture</label>
+      <div class="inline">
+        <select id="theme"></select>
+        <button id="btn-look-setup" class="ghost" type="button">Colours…</button>
+      </div>
     </section>
 
     <div class="actions">
@@ -124,14 +131,15 @@
 </header>
 
 <div id="controls" hidden>
-  <button id="btn-new" class="icon" type="button" title="New game" aria-label="New game">✚</button>
-  <button id="btn-flip" class="icon" type="button" title="Flip sides" aria-label="Flip sides">⇅</button>
-  <button id="btn-spin" class="icon" type="button" title="Spin the board" aria-label="Spin the board">⟳</button>
-  <button id="btn-reset-view" class="icon" type="button" title="Reset view" aria-label="Reset view">⌖</button>
-  <button id="btn-undo" class="icon" type="button" title="Take back" aria-label="Take back">↶</button>
+  <button id="btn-new" class="icon" type="button" title="New game" aria-label="New game"><span class="ic">✚</span><span class="tx">New</span></button>
+  <button id="btn-flip" class="icon" type="button" title="Flip sides" aria-label="Flip sides"><span class="ic">⇅</span><span class="tx">Flip</span></button>
+  <button id="btn-spin" class="icon" type="button" title="Spin the board" aria-label="Spin the board"><span class="ic">⟳</span><span class="tx">Spin</span></button>
+  <button id="btn-reset-view" class="icon" type="button" title="Reset view" aria-label="Reset view"><span class="ic">⌖</span><span class="tx">View</span></button>
+  <button id="btn-undo" class="icon" type="button" title="Take back" aria-label="Take back"><span class="ic">↶</span><span class="tx">Undo</span></button>
   <button id="btn-camera-help" class="icon" type="button"
-          title="Camera instructions" aria-label="Camera instructions">?</button>
-  <select id="theme-live" title="Theme" aria-label="Theme"></select>
+          title="Camera instructions" aria-label="Camera instructions"><span class="ic">?</span><span class="tx">Help</span></button>
+  <button id="btn-look" class="icon" type="button" title="Colours" aria-label="Colours"><span class="ic">◐</span><span class="tx">Colours</span></button>
+  <select id="theme-live" title="Texture" aria-label="Texture"></select>
 </div>
 
 <aside id="panel" hidden>
@@ -152,6 +160,25 @@
       <button data-piece="r" type="button">Rook</button>
       <button data-piece="b" type="button">Bishop</button>
       <button data-piece="n" type="button">Knight</button>
+    </div>
+  </div>
+</div>
+
+<!-- Colours -->
+<div id="look" class="screen dim" hidden>
+  <div class="sheet narrow look-sheet">
+    <h2>Colours</h2>
+    <label class="look-set" for="set-look">Theme</label>
+    <select id="set-look" class="look-select"></select>
+    <p class="hint look-note" id="look-note">Applied on top of the texture — its gloss, glow and lighting stay.</p>
+    <div id="look-list" class="look-list"></div>
+    <label class="check"><input id="look-remember" type="checkbox">
+      <span>Remember these colours for this texture</span></label>
+    <label class="check"><input id="look-labels" type="checkbox">
+      <span>Show text on the buttons</span></label>
+    <div class="actions center">
+      <button id="look-reset" class="ghost" type="button">Reset to texture colours</button>
+      <button id="look-close" class="primary" type="button">Done</button>
     </div>
   </div>
 </div>

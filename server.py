@@ -35,7 +35,13 @@ import urllib.error
 import urllib.request
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+# Run as a packaged program (tools/build-exe.py), __file__ points into a
+# temporary folder the bootloader unpacked; the game's files sit beside the
+# executable instead, where they can be seen and edited like the source ones.
+if getattr(sys, "frozen", False):
+    ROOT = os.path.dirname(os.path.abspath(sys.executable))
+else:
+    ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_ROOT = os.path.join(ROOT, "web")
 
 DEFAULT_LLM_URL = os.getenv("LLM_URL", "http://127.0.0.1:1234")
@@ -51,7 +57,7 @@ MAX_DRAIN_BYTES = 8 << 20          # how much of an oversized body to read away
 
 PIECE_VALUE = {"p": 1, "n": 3, "b": 3, "r": 5, "q": 9, "k": 0}
 
-BOOK_PATH = os.path.join(ROOT, "openings.json")
+BOOK_PATH = os.path.join(WEB_ROOT, "openings.json")
 
 
 # --------------------------------------------------------------- move lists
@@ -243,6 +249,19 @@ SYSTEM_PROMPT = (
 )
 
 DIFFICULTY_BRIEF = {
+    "beginner": "You are a beginner. You know how the pieces move but do not calculate. "
+                "Play a natural-looking move without checking for threats; it is fine to miss them.",
+    "casual": "You are a casual player. Look at most one move ahead, take material that is "
+              "clearly free, and do not worry about deeper tactics.",
+    "club": "You are a solid club player. Play sensible, principled moves, and check "
+            "captures and threats for both sides before you move.",
+    "advanced": "You are a strong player. Calculate forcing lines (checks, captures, threats) "
+                "several moves ahead and rarely give material away.",
+    "expert": "You are an expert. Calculate carefully, weigh every forcing line for both "
+              "sides, and play the best move you can find.",
+    "master": "Play the strongest move you can find. Calculate as deeply as you can, "
+              "consider every threat, and never make a move you have not checked for tactics.",
+    # The names used before there were six levels; still accepted.
     "easy": "Play casually. Do not think deeply; a natural, unambitious move is fine.",
     "medium": "Play a reasonable, solid move.",
     "hard": "Play the strongest move you can find. Consider threats and material.",
@@ -1025,7 +1044,7 @@ def main():
     args = parser.parse_args()
 
     if not os.path.isdir(WEB_ROOT):
-        print(f"web/ not found next to server.py (looked in {WEB_ROOT})", file=sys.stderr)
+        print(f"web/ not found next to the program (looked in {WEB_ROOT})", file=sys.stderr)
         return 1
 
     try:

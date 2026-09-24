@@ -68,6 +68,7 @@ export class Board {
     this._buildSquares();
     this._buildFrame();
     this._buildOverlays();
+    this._buildHover();
     this._buildLabels();
   }
 
@@ -150,6 +151,45 @@ export class Board {
 
       this.overlays.set(square, { outline, dot });
     }
+  }
+
+  /**
+   * The square under the pointer, before anything is even selected — a
+   * single mesh moved to wherever it is needed, since only one square can be
+   * hovered at a time. Kept apart from `overlays`, which hold per-role state
+   * a click sets and a click clears, so a passing hover never overwrites (or
+   * has to remember and restore) a select/move/capture/last outline already
+   * showing on the same square.
+   */
+  _buildHover() {
+    const geometry = new THREE.PlaneGeometry(1, 1).rotateX(-Math.PI / 2);
+    this._hover = new THREE.Mesh(
+      geometry,
+      new THREE.MeshBasicMaterial({
+        map: this._outlineTex,
+        transparent: true,
+        depthWrite: false,
+        opacity: 0.4,
+      })
+    );
+    this._hover.position.y = OVERLAY_Y;
+    this._hover.visible = false;
+    this._hover.renderOrder = 2;
+    this.group.add(this._hover);
+  }
+
+  /** Show the hover cue on `square`, or hide it if `square` is null. */
+  hoverSquare(square) {
+    if (!square) {
+      this._hover.visible = false;
+      return;
+    }
+    const colour = this.materials.highlightColors.hover;
+    if (colour) this._hover.material.color.copy(colour);
+    const p = squareToWorld(square);
+    this._hover.position.x = p.x;
+    this._hover.position.z = p.z;
+    this._hover.visible = true;
   }
 
   _buildLabels() {

@@ -48,7 +48,7 @@ is not done, however well it appears to work.
 
 ## 0. Project setup
 
-**0.1 Repo skeleton** — structure, `.gitignore`, MIT licence, a Windows launcher,
+**0.1 Repo skeleton** — structure, `.gitignore`, MIT licence (replaced later by a non-commercial licence), a Windows launcher,
 throwaway terminal-chess files removed.
 - [x] Implementation
 - [x] Backend testing — `tests/test_gateway.py` serves and fetches every shipped file.
@@ -789,8 +789,9 @@ normalise six independently generated meshes to one consistent piece height.
 |---|---|---|
 | `tests/logic.test.mjs` | 29 | coordinate contract, rules, perft, a full game |
 | `tests/geometry.test.mjs` | 11 | the generated piece set |
+| `tests/engine.test.mjs` | 21 | the engine's move generator (perft), tactics, the six levels' relative strength |
 | `tests/test_gateway.py` | 56 | serving, health, all three opponents, reply parsing |
-| **Total** | **96** | all passing |
+| **Total** | **117** | all passing |
 
 The gateway suite's last test plays against whatever real model is listening on
 `127.0.0.1:1234` and skips with a notice when nothing is. It ran for real against
@@ -802,6 +803,64 @@ Qwen3-VL-4B in LM Studio.
 
 1. **Difficulty is advisory for language models.** It is precise for the built-in
    opponent and a line in the prompt for everything else. Said plainly in the UI.
-3. **The built-in opponent is not an engine.** It chooses from the legal moves the
-   board hands it and has no search. It is described as a sparring partner.
+3. ~~The built-in opponent is not an engine.~~ **Fixed.** Hard used to mean "take
+   the biggest capture", which nobody found hard. Memory now runs an opening book
+   and then a real alpha-beta search (`movegen.js`, `search.js`, in a worker) at six
+   levels. Levels are capped by depth and clock, and the low ones are jittered by
+   noise, rather than made to play random moves. The gateway's old `memory_move` is
+   no longer called by the page.
 4. **Generated piece sets** — section 16, deferred.
+
+---
+
+## Running without Python
+
+The page never needed Python; the gateway did, for three things: serving the
+page (modules and JSON cannot load from a file), making the AI endpoint call, and
+giving a command-line agent an address to connect to. All three need a listener,
+so the gateway stays — but it no longer needs to be run *as Python*.
+
+- `tools/build-exe.py` folds the gateway and an interpreter into `AIChess3D.exe`
+  with PyInstaller, and lays out `dist/AIChess3D/` beside it: launcher, `web/`,
+  licence. Nothing about the gateway's behaviour, routes or security changed; the
+  page cannot tell which one it is talking to.
+- `server.py` finds its files beside the executable when packaged (`sys.frozen`),
+  not in the bootloader's temporary folder, so `web/` stays editable.
+- The launcher uses `AIChess3D.exe` when it sits beside it and otherwise hunts for
+  Python exactly as before. Same file, same double-click.
+- The whole gateway suite runs against the executable with `CHESS3D_EXE` set (56
+  of 56 pass), and the build ends with its own smoke test.
+- The launcher was also run with Python absent from `PATH`; the page was served.
+- Left in place on purpose: the gateway's old `memory_move`. The page no longer
+  calls it, but the gateway suite uses it as a harmless opponent for its security
+  tests, and removing it is a rewrite of tests with no benefit to a player.
+- Not done, and not attempted: a phone-only build. A page in a phone browser cannot
+  listen or launch a program; that needs a native app. A phone can already play
+  from a PC's address, which needs no Python on the phone.
+
+---
+
+## Textures, player colours, labelled buttons
+
+- **Themes › Texture.** What were "themes" are now textures inside a Theme menu; the
+  three shipped ones are unchanged. The setup field is labelled that way, and the
+  in-game select is titled Texture.
+- **Colours on top of a texture** (`resolveTheme` in `themes.js`). A pick replaces
+  colour only. Roughness, metalness, glow strength, fog distance and lighting stay
+  the texture's, so painting cannot make two textures converge; a test paints all
+  three the same and checks they still differ. Emissive materials keep glowing in
+  the new colour, in proportion. The frame follows the dark squares, the fog and sky
+  follow the background, and coordinate labels are forced legible against the frame.
+- **Highlights do not follow.** Select, move, capture, check and last-move keep the
+  texture's colours: a yellow board would otherwise swallow a yellow selection.
+- **Remember** is per texture, saved under its own storage key
+  (`chess3d.look.v1`), apart from the setup settings, which are rewritten at every
+  game start. Unremembered changes belong to the visit to that texture.
+- **Buttons are themed** through CSS variables set from the texture's `ui.button`,
+  with text chosen for contrast. Text on/off is one switch in the Colours panel; off
+  is the previous look. On a phone the names sit under the glyphs and the texture
+  select drops to its own row; the panel and hint measure the strip's real height
+  (`--controls-h`) instead of assuming one row.
+- The ☰ menu button takes the themed colour but has no name beside it: the top bar
+  is the tightest place on a phone.
+

@@ -11,11 +11,13 @@
  * decides whether what it proposed actually happened.
  */
 
+import { findLevel } from './search.js';
+
 /**
  * @typedef {Object} Engine
  * @property {string} id
  * @property {string} name
- * @property {(fen: string, legal: string[], signal: AbortSignal) => Promise<string>} getMove
+ * @property {(fen: string, legal: string[], signal: AbortSignal, history?: string[]) => Promise<string>} getMove
  */
 
 /** The player. Resolves when the board reports a completed move. */
@@ -54,6 +56,158 @@ export class HumanEngine {
 
   get waiting() {
     return this._resolve !== null;
+  }
+}
+
+/* --------------------------------------------------------------- opening book */
+
+let bookPromise = null;
+
+/** The opening book, fetched once. A missing or broken book is not an error: the engine just searches. */
+export function loadBook(url = './openings.json') {
+  if (!bookPromise) {
+    bookPromise = fetch(url, { cache: 'no-cache' })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => (data && data.positions) || {})
+      .catch(() => ({}));
+  }
+  return bookPromise;
+}
+
+/** Placement, side to move, castling, en passant — no move counters, so transpositions are recognised. */
+export function bookKey(fen) {
+  return fen.split(' ').slice(0, 4).join(' ');
+}
+
+/**
+ * What the book knows from this position. It stores moves most-played first;
+ * the main line is preferred but a sideline turns up now and then, so the
+ * opening is not the identical game every time.
+ */
+export function bookMove(book, fen, legalUci) {
+  const entry = book[bookKey(fen)];
+  if (!entry) return null;
+  const legal = new Set(legalUci);
+  const known = (entry.moves || []).filter((m) => legal.has(m));
+  if (known.length === 0) return null;
+  let chosen = known[0];
+  if (known.length > 1 && Math.random() < 0.25) {
+    chosen = known[1 + Math.floor(Math.random() * (known.length - 1))];
+  }
+  // A name only when this move belongs to exactly one line.
+  return { uci: chosen, opening: (entry.names || {})[chosen] || null };
+}
+
+/**
+ * The built-in opponent. It lives entirely in the page: an opening book first,
+ * then a real search in a worker. No gateway, no network, nothing to install —
+ * which is why it is the default, and why it works with the server stopped.
+ *
+ * How hard it plays is the difficulty level (see LEVELS in search.js): how deep
+ * it may look, how long it may think, how often it is shaken off the best move,
+ * and how far into a game it still trusts its book.
+ */
+export class LocalEngine {
+  constructor({ name = 'Memory', difficulty = 'club' } = {}) {
+    this.id = 'memory';
+    this.kind = 'memory';
+    this.name = name;
+    this.level = findLevel(difficulty);
+    this.isHuman = false;
+    this.lastDetail = null;
+    this._worker = null;
+    this._next = 1;
+  }
+
+  async getMove(fen, legal, signal, history = []) {
+    if (signal && signal.aborted) throw new DOMException('aborted', 'AbortError');
+    const legalUci = legal.map((m) => (typeof m === 'string' ? m : m.uci));
+
+    if (history.length < this.level.bookPlies) {
+      const book = await loadBook();
+      if (signal && signal.aborted) throw new DOMException('aborted', 'AbortError');
+      const known = bookMove(book, fen, legalUci);
+      if (known) {
+        this.lastDetail = {
+          source: 'book',
+          opening: known.opening,
+          note: known.opening ? `book: ${known.opening}` : 'book',
+        };
+        return known.uci;
+      }
+    }
+
+    const reply = await this._search(fen, history, signal);
+    if (!reply.uci) throw new EngineError('The opponent found no move to play.', null);
+    this.lastDetail = {
+      source: 'search',
+      note: `${this.level.name}: depth ${reply.depth}, ${reply.nodes} positions`,
+      depth: reply.depth,
+      score: reply.score,
+      nodes: reply.nodes,
+      ms: reply.ms,
+    };
+    return reply.uci;
+  }
+
+  /** Run the search in a worker; if workers are unavailable, run it here. */
+  _search(fen, history, signal) {
+    const request = { fen, history, level: this.level.id };
+
+    let worker = null;
+    try {
+      worker = this._worker || new Worker(new URL('./search.worker.js', import.meta.url), { type: 'module' });
+    } catch {
+      worker = null;
+    }
+    if (!worker) {
+      return import('./search.js').then(({ chooseMove }) => {
+        const r = chooseMove(fen, history, this.level.id);
+        return r ? { ...r } : {};
+      });
+    }
+    this._worker = worker;
+
+    return new Promise((resolve, reject) => {
+      const id = this._next++;
+      const finish = () => {
+        worker.removeEventListener('message', onMessage);
+        worker.removeEventListener('error', onError);
+        if (signal) signal.removeEventListener('abort', onAbort);
+      };
+      const onMessage = (event) => {
+        if (event.data.id !== id) return;
+        finish();
+        if (event.data.ok) resolve(event.data);
+        else reject(new EngineError('The built-in opponent failed.', event.data.error));
+      };
+      const onError = (event) => {
+        finish();
+        this._drop();
+        reject(new EngineError('The built-in opponent failed to start.', event.message || null));
+      };
+      const onAbort = () => {
+        finish();
+        // A search cannot be interrupted from outside, so end the worker; the
+        // next move starts a fresh one.
+        this._drop();
+        reject(new DOMException('aborted', 'AbortError'));
+      };
+      worker.addEventListener('message', onMessage);
+      worker.addEventListener('error', onError);
+      if (signal) signal.addEventListener('abort', onAbort, { once: true });
+      worker.postMessage({ id, ...request });
+    });
+  }
+
+  _drop() {
+    if (this._worker) this._worker.terminate();
+    this._worker = null;
+  }
+
+  /** Release the worker when the game ends or the opponent changes. */
+  dispose() {
+    this._drop();
   }
 }
 

@@ -14,6 +14,7 @@
  */
 
 import * as THREE from './vendor/three.module.js';
+import { boxRaycast } from './models.js';
 import { mergeGeometries } from './vendor/BufferGeometryUtils.js';
 
 export const PIECE_TYPES = ['p', 'r', 'n', 'b', 'q', 'k'];
@@ -322,6 +323,90 @@ export const PIECE_HEIGHTS = Object.fromEntries(
 
 let cache = null;
 
+// A themed set of models, when one is chosen. Anything it does not supply is
+// made from the classic geometry, so a set can be partial and never leaves a
+// hole in the board.
+let modelSet = null;
+
+// A piece with its own baked-in texture (see models.js's `textures`, and
+// STATUS.md for how it got there) can't use the two shared faction
+// materials — those are one flat colour times AO for the whole army, and a
+// textured piece needs its own image instead. Cloned lazily, one per
+// type/colour actually textured, and kept in step with theme changes by
+// `refreshTextureMaterials` rather than being rebuilt from scratch.
+let textureMaterials = new Map(); // "w:b" -> THREE.MeshStandardMaterial
+
+export function setModelSet(set) {
+  modelSet = set || null;
+  for (const mat of textureMaterials.values()) mat.dispose();
+  textureMaterials.clear();
+}
+
+// A theme's roughness/metalness/envMapIntensity are tuned for a flat
+// sculpted piece (turned wood, cast metal, polished stone) catching studio
+// light as a single uniform colour. A photo already has its own lighting
+// and highlights baked into its pixels — inheriting a theme's reflectivity
+// on top of that doubles the shine and is what reads as "metallic" instead
+// of "painted". A textured piece is a miniature with a matte paint job, not
+// a metal or stone piece, regardless of theme, so its finish is fixed here
+// rather than following the theme the way colour, geometry and emissive
+// glow still do.
+const TEXTURED_ROUGHNESS = 0.92;
+const TEXTURED_METALNESS = 0.0;
+const TEXTURED_ENV_INTENSITY = 0.18;
+
+/**
+ * A textured piece's own material, cloned from the faction material the
+ * first time it's needed. `.map` carries the piece's real painted colour,
+ * so `.color` is left white rather than the faction's uniform tint — the
+ * point of a texture is that it stops being one flat colour per side.
+ * `.vertexColors` stays on, so the AO baked into the mesh still darkens it.
+ */
+function texturedMaterialFor(color, type, materials) {
+  const texture = modelSet && modelSet.textures[color] && modelSet.textures[color][type];
+  if (!texture) return null;
+  const key = `${color}:${type}`;
+  let mat = textureMaterials.get(key);
+  if (!mat) {
+    mat = materials[color].clone();
+    mat.map = texture;
+    mat.color.set(0xffffff);
+    mat.vertexColors = true;
+    mat.roughness = TEXTURED_ROUGHNESS;
+    mat.metalness = TEXTURED_METALNESS;
+    mat.envMapIntensity = TEXTURED_ENV_INTENSITY;
+    textureMaterials.set(key, mat);
+  }
+  return mat;
+}
+
+/**
+ * Called after a theme repaints the two shared faction materials in place
+ * (see main.js's `paintTheme`), so every cloned per-piece texture material
+ * picks up the new emissive glow too (a Neon piece should still glow) —
+ * but *not* roughness/metalness/envMapIntensity, which stay fixed at the
+ * matte values `texturedMaterialFor` set, regardless of theme. Colour was
+ * already the texture's own job; finish is now too.
+ */
+export function refreshTextureMaterials(materials) {
+  for (const [key, mat] of textureMaterials) {
+    const color = key.split(':')[0];
+    const base = materials[color];
+    mat.emissive.copy(base.emissive);
+    mat.emissiveIntensity = base.emissiveIntensity;
+    mat.needsUpdate = true;
+  }
+}
+
+export function activeModelSet() {
+  return modelSet;
+}
+
+/** How tall a piece stands in the current set. */
+export function pieceHeightOf(type) {
+  return modelSet && modelSet.heights[type] ? modelSet.heights[type] : PIECE_HEIGHTS[type];
+}
+
 /** Build (once) and return the shared geometry for every piece type. */
 export function pieceGeometries() {
   if (cache) return cache;
@@ -341,6 +426,13 @@ export function pieceGeometries() {
       g.computeBoundingBox();
     }
     g.computeBoundingSphere();
+    // The piece material multiplies its colour by each vertex's own colour,
+    // so a themed model's baked AO can darken its creases (see themes.js's
+    // `pieceMaterial`). A classic piece has no such data of its own — every
+    // vertex white, i.e. a no-op multiply — so it renders exactly as it did
+    // before that material started expecting a colour attribute to exist.
+    const count = g.attributes.position.count;
+    g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(count * 3).fill(1), 3));
     cache[type] = g;
   }
   return cache;
@@ -351,6 +443,21 @@ export function pieceGeometries() {
  * nothing about how the set looks — only how it is shaped.
  */
 export function makePiece(type, color, materials) {
+  const modelled = modelSet && modelSet.geoms[color] && modelSet.geoms[color][type];
+  if (modelled) {
+    const material = texturedMaterialFor(color, type, materials) || materials[color];
+    const mesh = new THREE.Mesh(modelled, material);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    // A type/colour named in typeFacing (e.g. a knight posed side-on in its
+    // own geometry) overrides the set's general per-colour facing.
+    const override = modelSet.typeFacing[type];
+    mesh.rotation.y = (override && override[color] !== undefined) ? override[color] : modelSet.facing[color];
+    mesh.raycast = boxRaycast;
+    mesh.userData.piece = { type, color };
+    return mesh;
+  }
+
   const geometries = pieceGeometries();
   const geometry = geometries[type];
   if (!geometry) throw new Error(`unknown piece type: ${type}`);

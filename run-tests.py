@@ -3,7 +3,7 @@
 
     python run-tests.py
 
-Node is needed for the two JavaScript suites; they are skipped with a notice
+Node is needed for the four JavaScript suites; they are skipped with a notice
 if it is missing, and the gateway suite runs either way.
 """
 
@@ -16,6 +16,8 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 SUITES = [
     ("logic (coords, rules, perft)", "node", ["tests/logic.test.mjs"]),
     ("geometry (the piece set)", "node", ["tests/geometry.test.mjs"]),
+    ("engine (movegen, search, levels)", "node", ["tests/engine.test.mjs"]),
+    ("look (player colours)", "node", ["tests/look.test.mjs"]),
     ("gateway (server, opponents)", sys.executable, ["tests/test_gateway.py"]),
 ]
 

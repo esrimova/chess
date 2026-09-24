@@ -5,3 +5,7 @@ Thumbs.db
 .vscode/
 .idea/
 tests/__pycache__/
+build/
+dist/
+*.spec
+.wip-assets/

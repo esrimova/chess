@@ -16,11 +16,15 @@ import { Board } from './board.js';
 import { CameraRig } from './camera.js';
 import { Animator } from './animate.js';
 import { Picker } from './picker.js';
-import { Game } from './game.js';
+import { Game, moveToUci } from './game.js';
 import { Hud } from './hud.js';
-import { makePiece, PIECE_HEIGHTS } from './pieces.js';
-import { loadThemes, themeList, findTheme, defaultThemeId, createMaterials, applyTheme } from './themes.js';
-import { HumanEngine, RemoteEngine, EngineError, probeOpponents } from './engines.js';
+import { makePiece, PIECE_HEIGHTS, setModelSet, pieceHeightOf, refreshTextureMaterials } from './pieces.js';
+import {
+  loadThemes, themeList, findTheme, defaultThemeId, createMaterials, applyTheme,
+  resolveTheme, baseColors, COLOR_SLOTS, setList, findSet,
+} from './themes.js';
+import { loadModelSet, disposeModelSet } from './models.js';
+import { HumanEngine, RemoteEngine, LocalEngine, EngineError, probeOpponents, loadBook } from './engines.js';
 import { squareToWorld } from './coords.js';
 
 class App {
@@ -37,6 +41,8 @@ class App {
     this.legalForSelected = [];
     this.lastMove = null;
     this.abort = null;
+    this.runId = 0;
+    this._setRequest = 0;
     this.playing = false;
     this.busy = false;
   }
@@ -49,7 +55,15 @@ class App {
 
     const stored = this.hud.loadSettings();
     if (stored && stored.theme) this.themeId = stored.theme;
-    const theme = findTheme(this.themeId);
+
+    // The player's own colours, if they asked for any to be remembered, sit on
+    // top of the texture from the very first frame.
+    this.look = this.hud.loadLook();
+    this.pickOverrides(this.themeId);
+    const theme = resolveTheme(findTheme(this.themeId), this.overrides);
+
+    this.setId = (stored && stored.set) || 'classic';
+    this.modelSet = null; // resolves below; the classic set needs nothing loaded
 
     this.materials = createMaterials(theme);
     this.stage = new Stage(document.getElementById('view'));
@@ -78,10 +92,20 @@ class App {
     });
     this.stage.start();
 
+    await this.applyPieceSet(this.setId, { silent: true });
     this.setupPosition();
     this.frameBoard();
 
     this.hud.fillThemes(themeList(), this.themeId);
+    this.hud.fillSets(setList(), this.setId);
+    this.hud.buildLookPanel(COLOR_SLOTS, (slot, hex) => this.onColour(slot, hex));
+    this.hud.setSideNames(findSet(this.setId).sides);
+    this.hud.applyButtonTheme(theme.ui);
+    this.hud.setButtonText(this.look.labels);
+    this.hud.syncLookPanel(
+      { ...baseColors(findTheme(this.themeId)), ...this.overrides },
+      findTheme(this.themeId).name, this.remembered
+    );
     this.hud.writeSettings(stored);
     if (this.hud.el.opponent.value === 'relay') this.onOpponentChanged();
     this.hud.el.theme.value = this.themeId;
@@ -148,7 +172,7 @@ class App {
     // shift is applied counts the offset as overflow and pulls the camera much
     // too far back.
     this.stage.setViewShift(0);
-    this.rig.frame(this.board.framingPoints(PIECE_HEIGHTS.k + 0.3), {
+    this.rig.frame(this.board.framingPoints(pieceHeightOf('k') + 0.3), {
       marginX: 0.9,
       marginY: 0.9 * (bandHeight / height),
       aspect,
@@ -187,6 +211,21 @@ class App {
 
     hud.el.theme.addEventListener('change', () => this.setTheme(hud.el.theme.value));
     hud.el.themeLive.addEventListener('change', () => this.setTheme(hud.el.themeLive.value));
+    hud.el.set.addEventListener('change', () => this.applyPieceSet(hud.el.set.value));
+    hud.el.setLook.addEventListener('change', () => this.applyPieceSet(hud.el.setLook.value));
+
+    hud.el.btnLook.addEventListener('click', () => hud.showLook(true));
+    hud.el.btnLookSetup.addEventListener('click', () => hud.showLook(true));
+    hud.el.lookClose.addEventListener('click', () => hud.showLook(false));
+    hud.el.look.addEventListener('pointerdown', (event) => {
+      if (event.target === hud.el.look) hud.showLook(false);
+    });
+    window.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !hud.el.look.hidden) hud.showLook(false);
+    });
+    hud.el.lookReset.addEventListener('click', () => this.resetColours());
+    hud.el.lookRemember.addEventListener('change', () => this.setRemember(hud.el.lookRemember.checked));
+    hud.el.lookLabels.addEventListener('change', () => this.setButtonText(hud.el.lookLabels.checked));
 
     hud.el.btnFlip.addEventListener('click', () => this.rig.flip());
     hud.el.btnSpin.addEventListener('click', () => this.rig.spin());
@@ -279,12 +318,16 @@ class App {
     const names = { memory: 'Memory', http: 'The AI endpoint', relay: 'The connected AI' };
     const kind = kinds[settings.opponent] || 'memory';
 
-    const opponent = new RemoteEngine({
-      kind,
-      name: names[kind],
-      difficulty: settings.difficulty,
-      config: kind === 'http' ? settings.http : {},
-    });
+    // Memory is the one opponent that lives in the page; the others are
+    // reached through the gateway.
+    const opponent = kind === 'memory'
+      ? new LocalEngine({ name: names[kind], difficulty: settings.difficulty })
+      : new RemoteEngine({
+        kind,
+        name: names[kind],
+        difficulty: settings.difficulty,
+        config: kind === 'http' ? settings.http : {},
+      });
 
     return settings.side === 'b' ? { b: human, w: opponent } : { w: human, b: opponent };
   }
@@ -400,14 +443,20 @@ class App {
   async testConnection() {
     const settings = this.hud.readSettings();
     this.hud.setSetupStatus('Checking…');
+    // Memory lives in the page, so there is nothing to reach: only whether
+    // its book loaded. It plays without one, but the openings are the point.
+    if (settings.opponent === 'memory' || settings.opponent === 'builtin') {
+      const book = await loadBook();
+      const positions = Object.keys(book).length;
+      this.hud.setSetupStatus(
+        positions ? `Ready — ${positions} opening positions in memory` : 'Ready — no opening book found, it will search from move one',
+        positions ? 'ok' : 'bad'
+      );
+      return;
+    }
     const health = await probeOpponents({ http: settings.http, cli: settings.cli });
     if (!health) {
       this.hud.setSetupStatus('The gateway did not answer. Is server.py running?', 'bad');
-      return;
-    }
-    if (settings.opponent === 'memory') {
-      const positions = health.memory ? health.memory.positions : 0;
-      this.hud.setSetupStatus(`Memory holds ${positions} book positions`, 'ok');
       return;
     }
     if (settings.opponent === 'http') {
@@ -446,6 +495,10 @@ class App {
     this.settings = settings;
     this.hud.saveSettings(settings);
 
+    // Whatever the previous game was waiting for — a search, the player — is
+    // no longer wanted. Without this its loop lingers, and can outlive the
+    // engine it was waiting on.
+    if (this.abort) this.abort.abort();
     // Release anything the previous game left blocked on the relay.
     fetch('./relay/cancel', { method: 'POST' }).catch(() => {});
     this.game.reset();
@@ -456,6 +509,9 @@ class App {
     this.hud.renderCaptured([]);
     this.hud.setOpening(null);
 
+    for (const color of ['w', 'b']) {
+      if (this.engines[color] && this.engines[color].dispose) this.engines[color].dispose();
+    }
     this.engines = this.buildEngines(settings);
     this.humanColor = settings.side;
 
@@ -485,20 +541,24 @@ class App {
     const button = this.hud.el.btnNew;
     if (!this.playing || this.game.history().length === 0 || button.dataset.armed) {
       delete button.dataset.armed;
-      button.textContent = '✚';
-      button.title = 'New game';
+      this.setNewButton(button, false);
       this.startGame();
       return;
     }
     button.dataset.armed = '1';
-    button.textContent = '?';
-    button.title = 'Press again to start a new game';
+    this.setNewButton(button, true);
     clearTimeout(this._armTimer);
     this._armTimer = setTimeout(() => {
       delete button.dataset.armed;
-      button.textContent = '✚';
-      button.title = 'New game';
+      this.setNewButton(button, false);
     }, 3000);
+  }
+
+  /** The button holds a glyph and a name; asking "are you sure" changes both. */
+  setNewButton(button, armed) {
+    button.querySelector('.ic').textContent = armed ? '?' : '✚';
+    button.querySelector('.tx').textContent = armed ? 'Sure?' : 'New';
+    button.title = armed ? 'Press again to start a new game' : 'New game';
   }
 
   async undo() {
@@ -527,6 +587,11 @@ class App {
   /* ------------------------------------------------------------- turn loop */
 
   async loop() {
+    // Each run of the loop owns the game until another one starts. A stale run
+    // that wakes from an await must not apply its answer to a newer game.
+    const run = ++this.runId;
+    const stale = () => run !== this.runId;
+
     while (this.playing) {
       const status = this.game.status();
       this.hud.setStatus(status);
@@ -555,6 +620,7 @@ class App {
         } catch {
           return; // aborted: a new game, an undo, or the setup screen
         }
+        if (stale()) return;
         this.picker.enabled = false;
       } else {
         this.picker.enabled = false;
@@ -564,13 +630,18 @@ class App {
         // most, so do not leave it to the next poll three seconds away.
         this.refreshAiStatus();
         try {
-          uci = await engine.getMove(this.game.fen(), legal, this.abort.signal);
+          uci = await engine.getMove(
+            this.game.fen(), legal, this.abort.signal,
+            this.game.history().map(moveToUci)
+          );
         } catch (error) {
+          if (stale()) return;
           this.hud.setThinking(false);
           if (error && error.name === 'AbortError') return;
           this.reportEngineFailure(engine, error);
           return;
         }
+        if (stale()) return;
         this.hud.setThinking(false);
       }
 
@@ -588,6 +659,7 @@ class App {
 
       this.busy = true;
       await this.animateMove(move);
+      if (stale()) return;
       this.busy = false;
 
       this.lastMove = move;
@@ -702,11 +774,19 @@ class App {
 
     if (!square) { this.clearSelection(); return; }
 
-    // Completing a move.
     if (this.selected) {
+      // Completing a move.
       const move = this.legalForSelected.find((m) => m.to === square);
       if (move) {
         this.completeMove(move);
+        return;
+      }
+      // Clicking the already-selected piece again is "never mind" — drop the
+      // selection right there, rather than making the player click a second,
+      // unrelated square just to let go of it. A third click on the same
+      // square reselects it normally, same as any other piece.
+      if (square === this.selected) {
+        this.clearSelection();
         return;
       }
     }
@@ -724,6 +804,7 @@ class App {
     this.selected = square;
     this.legalForSelected = this.game.legalFrom(square);
 
+    this.board.hoverSquare(null);
     this.board.highlight(square, 'select');
     for (const move of this.legalForSelected) {
       this.board.highlight(move.to, move.captured ? 'capture' : 'move');
@@ -764,14 +845,27 @@ class App {
   }
 
   onHover(square) {
-    if (!this.playing || this.busy || this.selected) return;
+    if (!this.playing || this.busy) {
+      this.board.hoverSquare(null);
+      return;
+    }
     const engine = this.engines[this.game.turn()];
-    if (!engine || !engine.isHuman || !engine.waiting) return;
+    if (!engine || !engine.isHuman || !engine.waiting) {
+      this.board.hoverSquare(null);
+      return;
+    }
 
     document.body.style.cursor = 'default';
+    // Once a piece is picked, its own square already has the select outline
+    // — showing hover there too would just double it up — but everywhere
+    // else the hover cue keeps following the pointer, including the square
+    // a legal move would land on.
+    this.board.hoverSquare(square === this.selected ? null : square);
     if (!square) return;
     const piece = this.game.pieceAt(square);
     if (piece && piece.color === this.game.turn()) {
+      document.body.style.cursor = 'pointer';
+    } else if (this.selected && this.legalForSelected.some((m) => m.to === square)) {
       document.body.style.cursor = 'pointer';
     }
   }
@@ -794,16 +888,155 @@ class App {
 
   /* ------------------------------------------------------------------ theme */
 
-  setTheme(id) {
-    const theme = findTheme(id);
-    if (!theme) return;
-    this.themeId = id;
+  /**
+   * Choose the colours a texture starts with: the ones the player asked it to
+   * remember, or none. Changes that were never remembered belong to the visit
+   * to that texture and are gone once another is chosen.
+   */
+  pickOverrides(id) {
+    const saved = this.look.custom[id];
+    this.overrides = saved ? { ...saved } : {};
+    this.remembered = !!saved;
+  }
+
+  /** Repaint everything a texture and the player's colours decide. */
+  paintTheme() {
+    const base = findTheme(this.themeId);
+    const theme = resolveTheme(base, this.overrides);
 
     // Nothing is rebuilt: the materials the meshes already point at are
     // repointed, which is why the position survives a theme change.
     applyTheme(this.materials, theme);
+    refreshTextureMaterials(this.materials.pieces);
     this.stage.applyTheme(theme);
     this.board.retintLabels(theme);
+    this.hud.applyButtonTheme(theme.ui);
+    this.hud.syncLookPanel({ ...baseColors(base), ...this.overrides }, base.name, this.remembered);
+
+    // Highlights carry theme colours, so repaint whatever is showing.
+    this.board.clearHighlights();
+    if (this.selected) {
+      this.board.highlight(this.selected, 'select');
+      for (const move of this.legalForSelected) {
+        this.board.highlight(move.to, move.captured ? 'capture' : 'move');
+      }
+    } else {
+      this.showLastMove(false);
+    }
+    this.markCheck();
+  }
+
+  /** A picker moved. Repaint at most every few frames while it is being dragged. */
+  onColour(slot, hex) {
+    this.overrides[slot] = hex;
+    if (this.remembered) this.persistColours();
+    if (this._paintTimer) return;
+    this._paintTimer = setTimeout(() => {
+      this._paintTimer = null;
+      this.paintTheme();
+    }, 40);
+  }
+
+  persistColours() {
+    this.look.custom[this.themeId] = { ...this.overrides };
+    this.hud.saveLook(this.look);
+  }
+
+  /** The check box: keep this texture's colours for next time, or stop keeping them. */
+  setRemember(on) {
+    this.remembered = on;
+    if (on) {
+      this.persistColours();
+    } else {
+      delete this.look.custom[this.themeId];
+      this.hud.saveLook(this.look);
+    }
+  }
+
+  /** Back to the texture as shipped. Forgets any remembered colours for it too. */
+  resetColours() {
+    this.overrides = {};
+    this.remembered = false;
+    delete this.look.custom[this.themeId];
+    this.hud.saveLook(this.look);
+    this.paintTheme();
+  }
+
+  setButtonText(on) {
+    this.look.labels = !!on;
+    this.hud.saveLook(this.look);
+    this.hud.setButtonText(on);
+    // The strip changed size, and the board is framed around what covers it.
+    this.frameBoard();
+  }
+
+  /**
+   * Switch which characters stand on the board. Loading happens off to the
+   * side — nothing on the board changes until every model of the new set (or
+   * the decision that there is no new set) is ready, so a slow connection
+   * never shows half an army.
+   *
+   * `silent` is boot only: the board is not built yet, so there is nothing to
+   * repaint and no player choice to save.
+   */
+  async applyPieceSet(id, { silent = false } = {}) {
+    const set = findSet(id);
+    const request = ++this._setRequest;
+
+    let modelSet = null;
+    if (set.id !== 'classic') {
+      modelSet = await loadModelSet(set, './');
+      if (request !== this._setRequest) {
+        disposeModelSet(modelSet); // superseded while it was loading
+        return;
+      }
+    }
+    const previous = this.modelSet;
+    this.modelSet = modelSet;
+    this.setId = set.id;
+    setModelSet(modelSet);
+
+    if (!silent) {
+      // A set with its own texture (a gothic set wants gothic stone, not
+      // Classic Wood) asks for it once, on the way in — the player can still
+      // pick a different one afterwards.
+      if (set.texture && set.texture !== this.themeId && !this._userPickedTexture) {
+        this.setTheme(set.texture);
+      } else {
+        this.paintTheme();
+      }
+      this.setupPosition();
+      this.frameBoard();
+    }
+    disposeModelSet(previous);
+
+    if (modelSet && modelSet.missing.length && !silent) {
+      this.hud.toast(
+        `${set.name}: ${modelSet.missing.length} piece${modelSet.missing.length === 1 ? '' : 's'} `
+        + 'could not be loaded and are shown as the classic piece.',
+        { bad: true, ms: 9000 }
+      );
+    }
+
+    this.hud.el.set.value = set.id;
+    this.hud.el.setLook.value = set.id;
+    this.hud.syncSetHint(set.id);
+    this.hud.setSideNames(set.sides);
+
+    if (!silent) {
+      const settings = this.settings || this.hud.loadSettings() || {};
+      settings.set = set.id;
+      this.hud.saveSettings(settings);
+    }
+  }
+
+  setTheme(id) {
+    const theme = findTheme(id);
+    if (!theme) return;
+    this._userPickedTexture = true;
+    this.themeId = id;
+    this.pickOverrides(id);
+    this.paintTheme();
 
     this.hud.el.theme.value = id;
     this.hud.el.themeLive.value = id;
@@ -817,17 +1050,6 @@ class App {
       this.hud.saveSettings(stored);
     }
 
-    // Highlights carry theme colours, so repaint whatever is showing.
-    this.board.clearHighlights();
-    if (this.selected) {
-      this.board.highlight(this.selected, 'select');
-      for (const move of this.legalForSelected) {
-        this.board.highlight(move.to, move.captured ? 'capture' : 'move');
-      }
-    } else {
-      this.showLastMove(false);
-    }
-    this.markCheck();
   }
 }
 
